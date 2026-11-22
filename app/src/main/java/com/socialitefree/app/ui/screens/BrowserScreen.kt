@@ -159,7 +159,7 @@ fun BrowserScreen(
         ) {
             if (progress in 1..99) {
                 LinearProgressIndicator(
-                    progress = { progress / 100f },
+                    progress = progress / 100f,
                     modifier = Modifier.fillMaxWidth()
                 )
             }
