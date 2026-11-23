@@ -16,7 +16,7 @@ enum class Platform(
         iconEmoji = "▶️",
         url = "https://m.youtube.com",
         host = "youtube.com",
-        jsScriptAsset = "js/youtube_controls.js"
+        jsScriptAsset = "js/youtube_personal.js"
     ),
     INSTAGRAM(
         id = "instagram",
@@ -24,7 +24,7 @@ enum class Platform(
         iconEmoji = "📸",
         url = "https://www.instagram.com",
         host = "instagram.com",
-        jsScriptAsset = "js/instagram_controls.js"
+        jsScriptAsset = "js/instagram_feed_filter.js"
     ),
     TIKTOK(
         id = "tiktok",
@@ -38,8 +38,8 @@ enum class Platform(
         id = "twitter",
         displayName = "X / Twitter",
         iconEmoji = "🐦",
-        url = "https://mobile.twitter.com",
-        host = "twitter.com",
+        url = "https://x.com",
+        host = "x.com",
         jsScriptAsset = "js/twitter_controls.js"
     ),
     FACEBOOK(
@@ -48,7 +48,7 @@ enum class Platform(
         iconEmoji = "👥",
         url = "https://m.facebook.com",
         host = "facebook.com",
-        jsScriptAsset = "js/common_controls.js"
+        jsScriptAsset = "js/kid_facebook_controls.js"
     ),
     SNAPCHAT(
         id = "snapchat",
@@ -56,7 +56,7 @@ enum class Platform(
         iconEmoji = "👻",
         url = "https://web.snapchat.com",
         host = "snapchat.com",
-        jsScriptAsset = "js/common_controls.js"
+        jsScriptAsset = "js/kid_snapchat_polish.js"
     ),
     REDDIT(
         id = "reddit",
@@ -64,7 +64,7 @@ enum class Platform(
         iconEmoji = "🤖",
         url = "https://www.reddit.com",
         host = "reddit.com",
-        jsScriptAsset = "js/common_controls.js"
+        jsScriptAsset = "js/kid_reddit_controls.js"
     );
 
     companion object {
@@ -77,10 +77,10 @@ data class AppSettings(
     val ytBlockAds: Boolean = true,
     val ytHideShorts: Boolean = true,
     val ytHideComments: Boolean = false,
-    val ytHideRecommendations: Boolean = true,
+    val ytHideRecommendations: Boolean = false,
     val ytBackgroundPlay: Boolean = true,
     val ytSearchOnly: Boolean = false,
-    val ytBlockFeedAutoplay: Boolean = true,
+    val ytBlockFeedAutoplay: Boolean = false,
 
     // Instagram
     val igHideAds: Boolean = true,
@@ -108,15 +108,21 @@ data class AppSettings(
         val json = JSONObject()
         when (platform) {
             Platform.YOUTUBE -> {
-                json.put("blockAds", ytBlockAds)
-                json.put("hideShorts", ytHideShorts)
-                json.put("hideComments", ytHideComments)
-                json.put("hideRecommendations", ytHideRecommendations)
-                json.put("backgroundPlay", ytBackgroundPlay)
+                // Config keys matching personal.js
+                json.put("ads", ytBlockAds)
+                json.put("shorts", ytHideShorts)
+                json.put("comments", ytHideComments)
+                json.put("watchRecs", ytHideRecommendations)
+                json.put("background", ytBackgroundPlay)
                 json.put("searchOnly", ytSearchOnly)
-                json.put("blockFeedAutoplay", ytBlockFeedAutoplay)
+                json.put("feedAutoplay", ytBlockFeedAutoplay)
+                json.put("profiles", false)
+                json.put("quality", "auto")
+                json.put("captions", false)
+                json.put("sleep", JSONObject.NULL)
             }
             Platform.INSTAGRAM -> {
+                // Config keys matching feed_response_filter.js
                 json.put("hideAds", igHideAds)
                 json.put("hideSuggested", igHideSuggested)
                 json.put("hideComments", igHideComments)

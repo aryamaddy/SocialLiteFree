@@ -88,7 +88,7 @@ class PreferencesManager(private val context: Context) {
     val ytBlockAds: Flow<Boolean> = getBoolean(YT_BLOCK_ADS, true)
     val ytHideShorts: Flow<Boolean> = getBoolean(YT_HIDE_SHORTS, true)
     val ytHideComments: Flow<Boolean> = getBoolean(YT_HIDE_COMMENTS, false)
-    val ytHideRecommendations: Flow<Boolean> = getBoolean(YT_HIDE_RECOMMENDATIONS, true)
+    val ytHideRecommendations: Flow<Boolean> = getBoolean(YT_HIDE_RECOMMENDATIONS, false)
     val ytBackgroundPlay: Flow<Boolean> = getBoolean(YT_BACKGROUND_PLAY, true)
     val ytSearchOnly: Flow<Boolean> = getBoolean(YT_SEARCH_ONLY, false)
     val ytBlockFeedAutoplay: Flow<Boolean> = getBoolean(YT_BLOCK_FEED_AUTOPLAY, true)

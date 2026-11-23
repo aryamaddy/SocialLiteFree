@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Bitmap
 import android.view.ViewGroup
+import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebSettings
 import android.webkit.WebView
@@ -47,10 +48,10 @@ fun BrowserScreen(
     val ytBlockAds by prefsManager.ytBlockAds.collectAsState(initial = true)
     val ytHideShorts by prefsManager.ytHideShorts.collectAsState(initial = true)
     val ytHideComments by prefsManager.ytHideComments.collectAsState(initial = false)
-    val ytHideRecs by prefsManager.ytHideRecommendations.collectAsState(initial = true)
+    val ytHideRecs by prefsManager.ytHideRecommendations.collectAsState(initial = false)
     val ytBgPlay by prefsManager.ytBackgroundPlay.collectAsState(initial = true)
     val ytSearchOnly by prefsManager.ytSearchOnly.collectAsState(initial = false)
-    val ytBlockFeedAutoplay by prefsManager.ytBlockFeedAutoplay.collectAsState(initial = true)
+    val ytBlockFeedAutoplay by prefsManager.ytBlockFeedAutoplay.collectAsState(initial = false)
 
     val igHideAds by prefsManager.igHideAds.collectAsState(initial = true)
     val igHideSuggested by prefsManager.igHideSuggested.collectAsState(initial = true)
@@ -172,6 +173,12 @@ fun BrowserScreen(
                             ViewGroup.LayoutParams.MATCH_PARENT
                         )
 
+                        // Cookie Configuration
+                        CookieManager.getInstance().apply {
+                            setAcceptCookie(true)
+                            setAcceptThirdPartyCookies(this@apply, true)
+                        }
+
                         settings.apply {
                             javaScriptEnabled = true
                             domStorageEnabled = true
@@ -181,10 +188,23 @@ fun BrowserScreen(
                             useWideViewPort = true
                             loadWithOverviewMode = true
                             cacheMode = WebSettings.LOAD_DEFAULT
-                            userAgentString = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36"
+                            mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                            javaScriptCanOpenWindowsAutomatically = true
+
+                            // Mask WebView tag without breaking Chrome version / Client Hints
+                            val defaultUa = userAgentString
+                            userAgentString = defaultUa.replace("; wv", "")
                         }
 
-                        // Add JS Bridge for Reels timer & notices
+                        // Add JS Bridge for YouTube personal.js
+                        addJavascriptInterface(object {
+                            @JavascriptInterface
+                            fun postMessage(msg: String) {
+                                android.util.Log.d("YouTubeBridge", "Message: $msg")
+                            }
+                        }, "__NS__yt")
+
+                        // Add JS Bridge for SocialLiteFree notifications & Reels budget
                         addJavascriptInterface(object {
                             @JavascriptInterface
                             fun reelsBudgetExceeded() {
