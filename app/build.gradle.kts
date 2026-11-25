@@ -11,7 +11,7 @@ android {
         applicationId = "com.socialitefree.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 13
+        versionCode = 15
         versionName = "1.6.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
