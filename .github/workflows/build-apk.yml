@@ -52,15 +52,14 @@ jobs:
         if: startsWith(github.ref, 'refs/heads/')
         with:
           tag_name: v1.0.0-${{ github.run_number }}
-          name: SocialLiteFree v1.5.0 (Build ${{ github.run_number }})
+          name: SocialLiteFree v1.5.1 (Build ${{ github.run_number }})
           body: |
-            ### 🚀 SocialLiteFree v1.5.0 (Build ${{ github.run_number }})
+            ### 🚀 SocialLiteFree v1.5.1 (Build ${{ github.run_number }})
 
-            **New in v1.5.0:**
-            - **Reliable Repeat Blocking**: Blocks Reels & Shorts every single time (fixed single-trigger issue & hidden feed_tab bug with multi-window tracking + 250ms active watchdog).
-            - **Allow Sent Reels (Block Scrolling)**: Open & watch a single Reel sent to you in Instagram DMs, and automatically exit if you try to scroll to a second Reel!
-            - **YouTube Shorts Tab & Player Fix**: Improved Shorts tab lock overlay and modern YouTube Shorts player detection.
-            - **Keep Active 24/7 (When SocialLite is Closed)**: Added unrestricted battery exemption prompt so Android doesn't pause the blocker when swiping SocialLite from Recents.
+            **Fixes in v1.5.1:**
+            - **Fixed "Works 1st time, fails 2nd time" bug**: Enforced strict on-screen bounds checks so off-screen Instagram Home/DM pager views no longer falsely unlock Reels on subsequent taps.
+            - **24/7 Blocker Keep-Alive**: Added `BlockerKeepAliveService` so OEMs don't stop blocking when SocialLite is closed from Recents.
+            - **Enhanced DM Sent-Reel Scroll Lock**: Multi-signal scroll & content-change detector blocks swiping past the sent Reel.
 
             **APKs included:**
             1. **`SocialLite-OriginalAppBlocker.apk`** — Full Native App Reels/Shorts Blocker Edition.
