@@ -12,6 +12,7 @@ fun rememberAppSettings(prefsManager: PreferencesManager): AppSettings {
     val favoritePlatformId by prefsManager.defaultPlatform.collectAsState(initial = "instagram")
 
     val nativeBlockIgReels by prefsManager.nativeBlockIgReels.collectAsState(initial = true)
+    val nativeAllowSentReels by prefsManager.nativeAllowSentReels.collectAsState(initial = true)
     val nativeLockIgReelsTab by prefsManager.nativeLockIgReelsTab.collectAsState(initial = true)
     val nativeBlockIgExplore by prefsManager.nativeBlockIgExplore.collectAsState(initial = false)
     val nativeBlockYtShorts by prefsManager.nativeBlockYtShorts.collectAsState(initial = true)
@@ -60,7 +61,7 @@ fun rememberAppSettings(prefsManager: PreferencesManager): AppSettings {
 
     return remember(
         useClassicIcons, autoAppLaunch, favoritePlatformId,
-        nativeBlockIgReels, nativeLockIgReelsTab, nativeBlockIgExplore, nativeBlockYtShorts, nativeBlockFbReels, nativeBlockSnapSpotlight,
+        nativeBlockIgReels, nativeAllowSentReels, nativeLockIgReelsTab, nativeBlockIgExplore, nativeBlockYtShorts, nativeBlockFbReels, nativeBlockSnapSpotlight,
         ytBlockAds, ytHideShorts, ytHideComments, ytHideRecs, ytBgPlay, ytSearchOnly, ytBlockFeedAutoplay,
         igHideAds, igHideSuggested, igBlockReels, igHideComments, igBlockPosting, igReelsBudget,
         ttBlockExplore, ttBlockLive, ttBlockShop, ttBlockUpload, ttBlockSearch, ttBlockComments,
@@ -74,6 +75,7 @@ fun rememberAppSettings(prefsManager: PreferencesManager): AppSettings {
             autoAppLaunch = autoAppLaunch,
             favoritePlatformId = favoritePlatformId,
             nativeBlockIgReels = nativeBlockIgReels,
+            nativeAllowSentReels = nativeAllowSentReels,
             nativeLockIgReelsTab = nativeLockIgReelsTab,
             nativeBlockIgExplore = nativeBlockIgExplore,
             nativeBlockYtShorts = nativeBlockYtShorts,

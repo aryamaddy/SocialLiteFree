@@ -52,12 +52,14 @@ fun SettingsScreen(
 
     var a11yEnabled by remember { mutableStateOf(NativeAppHelper.isAccessibilityEnabled(context)) }
     var overlayEnabled by remember { mutableStateOf(NativeAppHelper.canDrawOverlays(context)) }
+    var batteryExempt by remember { mutableStateOf(NativeAppHelper.isIgnoringBatteryOptimizations(context)) }
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 a11yEnabled = NativeAppHelper.isAccessibilityEnabled(context)
                 overlayEnabled = NativeAppHelper.canDrawOverlays(context)
+                batteryExempt = NativeAppHelper.isIgnoringBatteryOptimizations(context)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -248,6 +250,37 @@ fun SettingsScreen(
                             }
                             HairlineDivider()
 
+                            // Battery Unrestricted Row (keeps service alive when SocialLite is closed)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { NativeAppHelper.requestIgnoreBatteryOptimizations(context) }
+                                    .padding(horizontal = 16.dp, vertical = 13.dp)
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Keep Active When Closed (24/7)",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = InkPrimary
+                                    )
+                                    Text(
+                                        text = if (batteryExempt) "Unrestricted — stays active even if SocialLite closes"
+                                        else "Tap to prevent battery saver from killing blocker",
+                                        fontSize = 12.sp,
+                                        color = if (batteryExempt) SocialGreen else SocialCoral
+                                    )
+                                }
+                                Text(
+                                    text = if (batteryExempt) "ACTIVE" else "ENABLE",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = if (batteryExempt) SocialGreen else SocialPurple
+                                )
+                            }
+                            HairlineDivider()
+
                             // Native Launch Modes
                             SettingsSwitchRow(
                                 title = "Open Original Instagram App",
@@ -273,10 +306,18 @@ fun SettingsScreen(
                             // Native Blocking Rules
                             SettingsSwitchRow(
                                 title = "Block Reels in Original Instagram",
-                                subtitle = "Stops Reels scrolling & exits Reels viewer instantly",
+                                subtitle = "Locks Reels tab & blocks Reels every time",
                                 checked = settings.nativeBlockIgReels
                             ) {
                                 coroutineScope.launch { prefsManager.setBoolean(PreferencesManager.NATIVE_BLOCK_IG_REELS, it) }
+                            }
+                            HairlineDivider()
+                            SettingsSwitchRow(
+                                title = "Allow Sent Reels (Block Scrolling)",
+                                subtitle = "Watch 1 Reel sent in DM, exits immediately if you scroll",
+                                checked = settings.nativeAllowSentReels
+                            ) {
+                                coroutineScope.launch { prefsManager.setBoolean(PreferencesManager.NATIVE_ALLOW_SENT_REELS, it) }
                             }
                             HairlineDivider()
                             SettingsSwitchRow(

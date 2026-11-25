@@ -15,6 +15,7 @@ import android.view.View
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import android.view.accessibility.AccessibilityWindowInfo
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.Toast
@@ -26,13 +27,16 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 
 /**
- * Accessibility-powered native app blocker.
+ * Persistent Accessibility-powered blocker for native social apps.
  *
- * Inspects live UI node hierarchies of installed social apps (Instagram, YouTube,
- * Facebook, Snapchat) to lock Reels/Shorts tabs with a touch-intercepting overlay
- * and automatically exit Reels/Shorts playback or scroll loops.
+ * Improvements over v1:
+ * - Multi-window lookup (ignores overlays/toasts so root window is never lost).
+ * - Reliable repeat blocking via GLOBAL_ACTION_BACK + 250ms active watchdog while inside monitored apps.
+ * - Smart Sent-Reel mode: allows opening 1 Reel from Instagram DM, but immediately exits if user scrolls!
+ * - Improved YouTube Shorts tab & player detection across modern YouTube app builds.
  */
 class NativeReelsBlockerService : AccessibilityService() {
 
@@ -47,8 +51,11 @@ class NativeReelsBlockerService : AccessibilityService() {
             PKG_INSTAGRAM, PKG_YOUTUBE, PKG_SNAPCHAT, PKG_FACEBOOK
         )
 
-        private const val ACTION_COOLDOWN_MS = 550L
-        private const val TOAST_COOLDOWN_MS = 2500L
+        private const val ACTION_COOLDOWN_MS = 380L
+        private const val TOAST_COOLDOWN_MS = 2200L
+        private const val WATCHDOG_INTERVAL_MS = 250L
+        private const val DM_TO_REEL_WINDOW_MS = 5500L
+        private const val SENT_REEL_SCROLL_GRACE_MS = 650L
     }
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -57,6 +64,7 @@ class NativeReelsBlockerService : AccessibilityService() {
     private var windowManager: WindowManager? = null
 
     @Volatile private var blockIgReels = true
+    @Volatile private var allowSentReels = true
     @Volatile private var lockIgReelsTab = true
     @Volatile private var blockIgExplore = false
     @Volatile private var blockYtShorts = true
@@ -67,169 +75,302 @@ class NativeReelsBlockerService : AccessibilityService() {
     private var lastToastAtMs = 0L
     private var currentForegroundPkg: String? = null
 
-    // Floating tab-lock overlay covering Reels / Shorts tab inside native apps
+    // Sent Reel (1-reel DM session, block vertical scrolling)
+    private var lastInDmAtMs = 0L
+    private var inSentReelSession = false
+    private var sentReelEnteredAtMs = 0L
+    private var sentReelInitialAuthor: String? = null
+
+    // Tab lock overlay
     private var tabLockOverlay: View? = null
     private var tabLockParams: WindowManager.LayoutParams? = null
     private val lastOverlayRect = Rect()
+
+    private var watchdogRunning = false
+    private val watchdogRunnable = object : Runnable {
+        override fun run() {
+            val pkg = currentForegroundPkg
+            if (pkg == null || pkg !in MONITORED_PACKAGES) {
+                watchdogRunning = false
+                removeTabLockOverlay()
+                return
+            }
+            try {
+                val root = findAppWindowRoot(pkg)
+                if (root != null) {
+                    inspectScreen(pkg, event = null, root = root)
+                }
+            } catch (_: Throwable) {
+            }
+            mainHandler.postDelayed(this, WATCHDOG_INTERVAL_MS)
+        }
+    }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
         prefsManager = PreferencesManager.getInstance(applicationContext)
         windowManager = getSystemService(WINDOW_SERVICE) as? WindowManager
 
-        serviceScope.launch {
-            prefsManager.nativeBlockIgReels.collectLatest { blockIgReels = it }
-        }
-        serviceScope.launch {
-            prefsManager.nativeLockIgReelsTab.collectLatest { lockIgReelsTab = it }
-        }
-        serviceScope.launch {
-            prefsManager.nativeBlockIgExplore.collectLatest { blockIgExplore = it }
-        }
-        serviceScope.launch {
-            prefsManager.nativeBlockYtShorts.collectLatest { blockYtShorts = it }
-        }
-        serviceScope.launch {
-            prefsManager.nativeBlockFbReels.collectLatest { blockFbReels = it }
-        }
-        serviceScope.launch {
-            prefsManager.nativeBlockSnapSpotlight.collectLatest { blockSnapSpotlight = it }
-        }
+        serviceScope.launch { prefsManager.nativeBlockIgReels.collectLatest { blockIgReels = it } }
+        serviceScope.launch { prefsManager.nativeAllowSentReels.collectLatest { allowSentReels = it } }
+        serviceScope.launch { prefsManager.nativeLockIgReelsTab.collectLatest { lockIgReelsTab = it } }
+        serviceScope.launch { prefsManager.nativeBlockIgExplore.collectLatest { blockIgExplore = it } }
+        serviceScope.launch { prefsManager.nativeBlockYtShorts.collectLatest { blockYtShorts = it } }
+        serviceScope.launch { prefsManager.nativeBlockFbReels.collectLatest { blockFbReels = it } }
+        serviceScope.launch { prefsManager.nativeBlockSnapSpotlight.collectLatest { blockSnapSpotlight = it } }
 
-        Log.i(TAG, "SocialLite NativeReelsBlockerService connected")
+        Log.i(TAG, "SocialLite NativeReelsBlockerService connected (v2)")
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
         val pkg = event.packageName?.toString() ?: return
 
-        if (pkg != currentForegroundPkg && pkg !in MONITORED_PACKAGES && !pkg.contains("inputmethod")) {
-            currentForegroundPkg = pkg
-            removeTabLockOverlay()
+        // Ignore our own overlay / keyboard / transient toast events so we don't clear monitored state falsely
+        if (pkg == packageName || pkg.contains("inputmethod", ignoreCase = true)) {
             return
         }
 
-        if (pkg !in MONITORED_PACKAGES) return
+        if (pkg !in MONITORED_PACKAGES) {
+            if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+                currentForegroundPkg = pkg
+                resetSentReelState()
+                removeTabLockOverlay()
+            }
+            return
+        }
+
         currentForegroundPkg = pkg
+        ensureWatchdogStarted()
 
         try {
-            val root = rootInActiveWindow
-            when (pkg) {
-                PKG_INSTAGRAM -> handleInstagram(event, root)
-                PKG_YOUTUBE -> handleYouTube(event, root)
-                PKG_SNAPCHAT -> handleSnapchat(root)
-                PKG_FACEBOOK -> handleFacebook(root)
-            }
+            val root = findAppWindowRoot(pkg)
+            inspectScreen(pkg, event, root)
         } catch (t: Throwable) {
-            Log.w(TAG, "onAccessibilityEvent error swallowed to keep service alive: ${t.message}")
+            Log.w(TAG, "onAccessibilityEvent error swallowed: ${t.message}")
         }
     }
 
-    private fun handleInstagram(event: AccessibilityEvent, root: AccessibilityNodeInfo?) {
+    private fun ensureWatchdogStarted() {
+        if (!watchdogRunning) {
+            watchdogRunning = true
+            mainHandler.postDelayed(watchdogRunnable, WATCHDOG_INTERVAL_MS)
+        }
+    }
+
+    private fun findAppWindowRoot(targetPkg: String): AccessibilityNodeInfo? {
+        try {
+            val activeRoot = rootInActiveWindow
+            if (activeRoot != null && activeRoot.packageName?.toString() == targetPkg) {
+                return activeRoot
+            }
+            val windowList = windows
+            if (!windowList.isNullOrEmpty()) {
+                for (w in windowList) {
+                    if (w.type == AccessibilityWindowInfo.TYPE_APPLICATION) {
+                        val r = w.root
+                        if (r != null && r.packageName?.toString() == targetPkg) {
+                            return r
+                        }
+                    }
+                }
+            }
+            return activeRoot
+        } catch (_: Throwable) {
+            return rootInActiveWindow
+        }
+    }
+
+    private fun inspectScreen(pkg: String, event: AccessibilityEvent?, root: AccessibilityNodeInfo?) {
+        when (pkg) {
+            PKG_INSTAGRAM -> handleInstagram(event, root)
+            PKG_YOUTUBE -> handleYouTube(root)
+            PKG_SNAPCHAT -> handleSnapchat(root)
+            PKG_FACEBOOK -> handleFacebook(root)
+        }
+    }
+
+    private fun handleInstagram(event: AccessibilityEvent?, root: AccessibilityNodeInfo?) {
         if (!blockIgReels && !blockIgExplore) {
             removeTabLockOverlay()
             return
         }
 
-        val eventClass = event.className?.toString() ?: ""
+        val now = System.currentTimeMillis()
+        val eventClass = event?.className?.toString() ?: ""
 
-        // 1. Detect Clips/Reels Viewer immediately (never block Stories which use reel_viewer_root)
-        if (blockIgReels) {
-            val isClipsActivity = eventClass.contains("ClipsUrlHandlerActivity", ignoreCase = true) ||
-                eventClass.contains("ClipsViewer", ignoreCase = true)
-
-            val inReelsViewer = isClipsActivity || (root != null && (
-                hasViewId(root, "com.instagram.android:id/clips_viewer_container") ||
-                    hasViewId(root, "com.instagram.android:id/clips_viewer_view_pager") ||
-                    hasViewId(root, "com.instagram.android:id/clips_viewer_video_layout") ||
-                    hasViewId(root, "com.instagram.android:id/clips_author_username")
-                ))
-
-            if (inReelsViewer) {
-                removeTabLockOverlay()
-                triggerInstagramExit("Reels blocked by SocialLite", root)
-                return
+        // Track when user is inside Instagram DMs (Inbox or Chat Thread)
+        if (root != null) {
+            val inDm = hasAnyViewId(
+                root,
+                listOf(
+                    "com.instagram.android:id/row_thread_composer_edittext",
+                    "com.instagram.android:id/direct_inbox_action_bar",
+                    "com.instagram.android:id/direct_thread_recycler_view"
+                )
+            )
+            if (inDm) {
+                lastInDmAtMs = now
             }
+        }
 
-            // Extra scroll guard if user scrolls inside a Reels pager
-            if (event.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED) {
-                val srcId = event.source?.viewIdResourceName ?: ""
-                if (srcId.contains("clips_viewer", ignoreCase = true)) {
-                    removeTabLockOverlay()
-                    triggerInstagramExit("Reels scrolling disabled", root)
+        // Detect Instagram Reels viewer (explicitly excludes Stories which use reel_viewer_root)
+        val isClipsActivity = eventClass.contains("ClipsUrlHandlerActivity", ignoreCase = true) ||
+            eventClass.contains("ClipsViewer", ignoreCase = true)
+
+        val inReelsViewer = isClipsActivity || (root != null && hasAnyViewId(
+            root,
+            listOf(
+                "com.instagram.android:id/clips_viewer_container",
+                "com.instagram.android:id/clips_viewer_view_pager",
+                "com.instagram.android:id/clips_viewer_video_layout",
+                "com.instagram.android:id/clips_author_username"
+            )
+        ))
+
+        if (blockIgReels && inReelsViewer) {
+            removeTabLockOverlay()
+
+            // Determine if this entry came directly from a DM sent Reel
+            if (!inSentReelSession) {
+                val cameFromDm = allowSentReels && (now - lastInDmAtMs) <= DM_TO_REEL_WINDOW_MS
+                if (cameFromDm) {
+                    inSentReelSession = true
+                    sentReelEnteredAtMs = now
+                    sentReelInitialAuthor = readAuthorUsername(root)
+                    return
+                } else {
+                    // Direct Reels tab / feed Reel / Explore Reel -> block & exit immediately!
+                    triggerBackExit("Reels blocked by SocialLite")
                     return
                 }
             }
+
+            // Inside an allowed 1-Reel DM session: monitor for ANY vertical scroll or author change!
+            if (sentReelInitialAuthor == null) {
+                sentReelInitialAuthor = readAuthorUsername(root)
+            }
+
+            val elapsed = now - sentReelEnteredAtMs
+            if (elapsed > SENT_REEL_SCROLL_GRACE_MS) {
+                val scrolledEvent = event != null &&
+                    event.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED &&
+                    isReelsScrollEvent(event)
+
+                val currentAuthor = readAuthorUsername(root)
+                val authorChanged = sentReelInitialAuthor != null &&
+                    currentAuthor != null &&
+                    currentAuthor != sentReelInitialAuthor
+
+                if (scrolledEvent || authorChanged) {
+                    resetSentReelState()
+                    triggerBackExit("Reel scrolling blocked by SocialLite")
+                }
+            }
+            return
         }
 
-        // 2. Detect Explore tab / search & explore if enabled
+        // Left Reels viewer cleanly -> reset sent Reel session so future Reels are evaluated fresh
+        if (!inReelsViewer && inSentReelSession) {
+            resetSentReelState()
+        }
+
+        // Block Explore if enabled
         if (blockIgExplore && root != null) {
             if (hasViewId(root, "com.instagram.android:id/explore_action_bar")) {
                 removeTabLockOverlay()
-                triggerInstagramExit("Explore blocked by SocialLite", root)
+                triggerBackExit("Explore blocked by SocialLite")
                 return
             }
         }
 
-        // 3. Cover / Lock the Reels tab button in the bottom navigation bar
+        // Cover / Lock the Reels tab button in Instagram bottom bar
         if (blockIgReels && lockIgReelsTab && root != null) {
             val reelsTab = findFirstByViewId(root, "com.instagram.android:id/clips_tab")
-                ?: findBottomTabByDescription(root, "com.instagram.android:id/tab_bar", "reel")
+                ?: findBottomTabNode(root, "com.instagram.android:id/tab_bar", "reel")
             if (reelsTab != null && reelsTab.isVisibleToUser) {
                 val rect = Rect()
                 reelsTab.getBoundsInScreen(rect)
-                if (rect.width() > 16 && rect.height() > 16 && rect.top > 200) {
+                if (rect.width() > 16 && rect.height() > 16 && rect.top > 250) {
                     showOrMoveTabLockOverlay(
                         rect = rect,
                         iconRes = R.drawable.ig_reels_tab_locked,
                         blockMsg = "Reels are blocked by SocialLite"
                     )
-                } else {
-                    removeTabLockOverlay()
+                    return
                 }
-            } else {
-                removeTabLockOverlay()
             }
-        } else {
-            removeTabLockOverlay()
         }
+        removeTabLockOverlay()
     }
 
-    private fun handleYouTube(event: AccessibilityEvent, root: AccessibilityNodeInfo?) {
-        if (!blockYtShorts) {
+    private fun isReelsScrollEvent(event: AccessibilityEvent): Boolean {
+        val srcId = event.source?.viewIdResourceName ?: ""
+        if (srcId.contains("clips_viewer", ignoreCase = true) ||
+            srcId.contains("view_pager", ignoreCase = true)
+        ) {
+            return true
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && abs(event.scrollDeltaY) > 25) {
+            return true
+        }
+        if (event.fromIndex >= 0 && event.toIndex >= 0 && event.toIndex != event.fromIndex) {
+            return true
+        }
+        return false
+    }
+
+    private fun readAuthorUsername(root: AccessibilityNodeInfo?): String? {
+        if (root == null) return null
+        val node = findFirstByViewId(root, "com.instagram.android:id/clips_author_username")
+        return node?.text?.toString()?.trim()?.takeIf { it.isNotEmpty() }
+    }
+
+    private fun resetSentReelState() {
+        inSentReelSession = false
+        sentReelEnteredAtMs = 0L
+        sentReelInitialAuthor = null
+    }
+
+    private fun handleYouTube(root: AccessibilityNodeInfo?) {
+        if (!blockYtShorts || root == null) {
             removeTabLockOverlay()
             return
         }
 
-        if (root != null) {
-            val inShorts = hasViewId(root, "com.google.android.youtube:id/reel_player_page_container") ||
-                hasViewId(root, "com.google.android.youtube:id/reel_recycler") ||
-                hasViewId(root, "com.google.android.youtube:id/shorts_player_container")
+        val inShortsPlayer = hasAnyViewId(
+            root,
+            listOf(
+                "com.google.android.youtube:id/reel_player_page_container",
+                "com.google.android.youtube:id/reel_recycler",
+                "com.google.android.youtube:id/shorts_player_container",
+                "com.google.android.youtube:id/reel_watch_fragment_root",
+                "com.google.android.youtube:id/reel_vod_player_container",
+                "com.google.android.youtube:id/reel_watch_player"
+            )
+        ) || hasViewIdContainsAny(root, listOf("reel_player", "shorts_player", "reel_watch", "reel_recycler"))
 
-            if (inShorts) {
-                removeTabLockOverlay()
-                triggerGlobalBack("Shorts blocked by SocialLite")
+        if (inShortsPlayer) {
+            removeTabLockOverlay()
+            triggerBackExit("YouTube Shorts blocked by SocialLite")
+            return
+        }
+
+        // Cover Shorts tab in bottom pivot_bar
+        val shortsTab = findBottomTabNode(root, "com.google.android.youtube:id/pivot_bar", "short")
+        if (shortsTab != null && shortsTab.isVisibleToUser) {
+            val rect = Rect()
+            shortsTab.getBoundsInScreen(rect)
+            if (rect.width() > 16 && rect.height() > 16 && rect.top > 250) {
+                showOrMoveTabLockOverlay(
+                    rect = rect,
+                    iconRes = R.drawable.ig_reels_tab_locked,
+                    blockMsg = "Shorts are blocked by SocialLite"
+                )
                 return
             }
-
-            // Cover Shorts tab in bottom pivot_bar
-            val shortsTab = findBottomTabByDescription(root, "com.google.android.youtube:id/pivot_bar", "short")
-            if (shortsTab != null && shortsTab.isVisibleToUser) {
-                val rect = Rect()
-                shortsTab.getBoundsInScreen(rect)
-                if (rect.width() > 16 && rect.height() > 16 && rect.top > 200) {
-                    showOrMoveTabLockOverlay(
-                        rect = rect,
-                        iconRes = R.drawable.ig_reels_tab_locked,
-                        blockMsg = "Shorts are blocked by SocialLite"
-                    )
-                } else {
-                    removeTabLockOverlay()
-                }
-            } else {
-                removeTabLockOverlay()
-            }
         }
+        removeTabLockOverlay()
     }
 
     private fun handleSnapchat(root: AccessibilityNodeInfo?) {
@@ -240,7 +381,7 @@ class NativeReelsBlockerService : AccessibilityService() {
 
         if (hasViewId(root, "com.snapchat.android:id/spotlight_container")) {
             removeTabLockOverlay()
-            triggerGlobalBack("Spotlight blocked by SocialLite")
+            triggerBackExit("Spotlight blocked by SocialLite")
             return
         }
 
@@ -248,18 +389,16 @@ class NativeReelsBlockerService : AccessibilityService() {
         if (spotTab != null && spotTab.isVisibleToUser) {
             val rect = Rect()
             spotTab.getBoundsInScreen(rect)
-            if (rect.width() > 16 && rect.height() > 16 && rect.top > 200) {
+            if (rect.width() > 16 && rect.height() > 16 && rect.top > 250) {
                 showOrMoveTabLockOverlay(
                     rect = rect,
                     iconRes = R.drawable.snapchat_spotlight_tab_locked,
                     blockMsg = "Spotlight is blocked by SocialLite"
                 )
-            } else {
-                removeTabLockOverlay()
+                return
             }
-        } else {
-            removeTabLockOverlay()
         }
+        removeTabLockOverlay()
     }
 
     private fun handleFacebook(root: AccessibilityNodeInfo?) {
@@ -267,44 +406,21 @@ class NativeReelsBlockerService : AccessibilityService() {
             removeTabLockOverlay()
             return
         }
-        val reelsViewer = findFirstByDescriptionExactOrPrefix(root, "Reels")
-        // Only act if we are clearly inside a full-screen Reels viewer surface
-        if (reelsViewer != null && hasViewIdContains(root, "reels_viewer")) {
+        if (hasViewIdContainsAny(root, listOf("reels_viewer", "fb_shorts"))) {
             removeTabLockOverlay()
-            triggerGlobalBack("Facebook Reels blocked by SocialLite")
+            triggerBackExit("Facebook Reels blocked by SocialLite")
         } else {
             removeTabLockOverlay()
         }
     }
 
-    private fun triggerInstagramExit(toastMessage: String, root: AccessibilityNodeInfo?) {
-        val now = System.currentTimeMillis()
-        if (now - lastActionAtMs < ACTION_COOLDOWN_MS) return
-        lastActionAtMs = now
-
-        // First try switching cleanly to Home feed tab if visible, otherwise press Back
-        val feedTab = root?.let { findFirstByViewId(it, "com.instagram.android:id/feed_tab") }
-        val clickedFeed = feedTab?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true
-        if (!clickedFeed) {
-            performGlobalAction(GLOBAL_ACTION_BACK)
-        }
-
-        onBlockedAction(toastMessage)
-    }
-
-    private fun triggerGlobalBack(toastMessage: String) {
+    private fun triggerBackExit(toastMessage: String) {
         val now = System.currentTimeMillis()
         if (now - lastActionAtMs < ACTION_COOLDOWN_MS) return
         lastActionAtMs = now
 
         performGlobalAction(GLOBAL_ACTION_BACK)
-        onBlockedAction(toastMessage)
-    }
-
-    private fun onBlockedAction(toastMessage: String) {
-        serviceScope.launch {
-            prefsManager.incrementNativeBlockedCount()
-        }
+        serviceScope.launch { prefsManager.incrementNativeBlockedCount() }
         showRateLimitedToast(toastMessage)
     }
 
@@ -329,7 +445,7 @@ class NativeReelsBlockerService : AccessibilityService() {
                 if (tabLockOverlay == null) {
                     val container = FrameLayout(this).apply {
                         val bg = GradientDrawable().apply {
-                            setColor(Color.parseColor("#E6F4F0EA"))
+                            setColor(Color.parseColor("#ECEDE8DF"))
                             cornerRadius = 24f
                             setStroke(2, Color.parseColor("#331C1C1E"))
                         }
@@ -344,7 +460,7 @@ class NativeReelsBlockerService : AccessibilityService() {
                     val icon = ImageView(this).apply {
                         setImageResource(iconRes)
                         scaleType = ImageView.ScaleType.CENTER_INSIDE
-                        alpha = 0.85f
+                        alpha = 0.88f
                     }
                     val iconSize = (minOf(rect.width(), rect.height()) * 0.56f).toInt().coerceIn(36, 84)
                     container.addView(
@@ -408,20 +524,32 @@ class NativeReelsBlockerService : AccessibilityService() {
         return !list.isNullOrEmpty()
     }
 
+    private fun hasAnyViewId(root: AccessibilityNodeInfo, ids: List<String>): Boolean {
+        for (id in ids) {
+            val list = root.findAccessibilityNodeInfosByViewId(id)
+            if (!list.isNullOrEmpty()) return true
+        }
+        return false
+    }
+
     private fun findFirstByViewId(root: AccessibilityNodeInfo, id: String): AccessibilityNodeInfo? {
         val list = root.findAccessibilityNodeInfosByViewId(id)
         return list?.firstOrNull()
     }
 
-    private fun hasViewIdContains(root: AccessibilityNodeInfo, needle: String): Boolean {
+    private fun hasViewIdContainsAny(root: AccessibilityNodeInfo, needles: List<String>): Boolean {
         val queue = ArrayDeque<AccessibilityNodeInfo>()
         queue.add(root)
         var visited = 0
-        while (queue.isNotEmpty() && visited < 80) {
+        while (queue.isNotEmpty() && visited < 95) {
             val node = queue.removeFirst()
             visited++
             val vid = node.viewIdResourceName
-            if (vid != null && vid.contains(needle, ignoreCase = true)) return true
+            if (vid != null) {
+                for (n in needles) {
+                    if (vid.contains(n, ignoreCase = true)) return true
+                }
+            }
             for (i in 0 until node.childCount) {
                 node.getChild(i)?.let { queue.add(it) }
             }
@@ -429,23 +557,7 @@ class NativeReelsBlockerService : AccessibilityService() {
         return false
     }
 
-    private fun findFirstByDescriptionExactOrPrefix(root: AccessibilityNodeInfo, desc: String): AccessibilityNodeInfo? {
-        val queue = ArrayDeque<AccessibilityNodeInfo>()
-        queue.add(root)
-        var visited = 0
-        while (queue.isNotEmpty() && visited < 60) {
-            val node = queue.removeFirst()
-            visited++
-            val cd = node.contentDescription?.toString()
-            if (cd != null && cd.equals(desc, ignoreCase = true)) return node
-            for (i in 0 until node.childCount) {
-                node.getChild(i)?.let { queue.add(it) }
-            }
-        }
-        return null
-    }
-
-    private fun findBottomTabByDescription(
+    private fun findBottomTabNode(
         root: AccessibilityNodeInfo,
         barViewId: String,
         keyword: String
@@ -454,13 +566,20 @@ class NativeReelsBlockerService : AccessibilityService() {
         val queue = ArrayDeque<AccessibilityNodeInfo>()
         queue.add(bar)
         var visited = 0
-        while (queue.isNotEmpty() && visited < 60) {
+        while (queue.isNotEmpty() && visited < 80) {
             val node = queue.removeFirst()
             visited++
             val cd = node.contentDescription?.toString()?.lowercase() ?: ""
             val txt = node.text?.toString()?.lowercase() ?: ""
-            if (node.isClickable && (cd.contains(keyword) || txt.contains(keyword))) {
-                return node
+            if (cd.contains(keyword) || txt.contains(keyword)) {
+                // Walk up to clickable parent tab container if child itself is not clickable
+                var target: AccessibilityNodeInfo? = node
+                var hops = 0
+                while (target != null && !target.isClickable && hops < 3) {
+                    target = target.parent
+                    hops++
+                }
+                return if (target != null && target.isClickable) target else node
             }
             for (i in 0 until node.childCount) {
                 node.getChild(i)?.let { queue.add(it) }
@@ -470,10 +589,14 @@ class NativeReelsBlockerService : AccessibilityService() {
     }
 
     override fun onInterrupt() {
+        watchdogRunning = false
+        mainHandler.removeCallbacks(watchdogRunnable)
         removeTabLockOverlay()
     }
 
     override fun onDestroy() {
+        watchdogRunning = false
+        mainHandler.removeCallbacks(watchdogRunnable)
         removeTabLockOverlay()
         serviceScope.cancel()
         super.onDestroy()

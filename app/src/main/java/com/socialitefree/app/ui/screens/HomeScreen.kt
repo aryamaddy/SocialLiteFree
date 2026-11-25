@@ -64,6 +64,7 @@ fun HomeScreen(
 
     var a11yEnabled by remember { mutableStateOf(NativeAppHelper.isAccessibilityEnabled(context)) }
     var overlayEnabled by remember { mutableStateOf(NativeAppHelper.canDrawOverlays(context)) }
+    var batteryExempt by remember { mutableStateOf(NativeAppHelper.isIgnoringBatteryOptimizations(context)) }
 
     // Refresh Android permission statuses automatically whenever user returns from System Settings
     DisposableEffect(lifecycleOwner) {
@@ -71,6 +72,7 @@ fun HomeScreen(
             if (event == Lifecycle.Event.ON_RESUME) {
                 a11yEnabled = NativeAppHelper.isAccessibilityEnabled(context)
                 overlayEnabled = NativeAppHelper.canDrawOverlays(context)
+                batteryExempt = NativeAppHelper.isIgnoringBatteryOptimizations(context)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -205,8 +207,10 @@ fun HomeScreen(
                 platform = targetPlatform,
                 a11yEnabled = a11yEnabled,
                 overlayEnabled = overlayEnabled,
+                batteryExempt = batteryExempt,
                 onEnableAccessibility = { NativeAppHelper.openAccessibilitySettings(context) },
                 onEnableOverlay = { NativeAppHelper.openOverlaySettings(context) },
+                onRequestBatteryExempt = { NativeAppHelper.requestIgnoreBatteryOptimizations(context) },
                 onLaunchNativeAnyway = {
                     pendingNativePlatform = null
                     val launched = NativeAppHelper.launchNativeApp(context, targetPlatform)
@@ -572,8 +576,10 @@ private fun NativeBlockerSetupSheet(
     platform: Platform,
     a11yEnabled: Boolean,
     overlayEnabled: Boolean,
+    batteryExempt: Boolean,
     onEnableAccessibility: () -> Unit,
     onEnableOverlay: () -> Unit,
+    onRequestBatteryExempt: () -> Unit,
     onLaunchNativeAnyway: () -> Unit,
     onOpenCleanWebInstead: () -> Unit
 ) {
@@ -712,6 +718,57 @@ private fun NativeBlockerSetupSheet(
                     ) {
                         Text(
                             text = if (overlayEnabled) "Overlay Permission Allowed ✓" else "Allow Display Over Other Apps",
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color.White
+                        )
+                    }
+                }
+            }
+        }
+
+        // Step 3: Keep Running 24/7 (Battery Optimization Exemption)
+        item {
+            Surface(
+                shape = RoundedCornerShape(18.dp),
+                color = CreamCard,
+                shadowElevation = 1.dp
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "3. Keep Active When Closed (24/7)",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp,
+                            color = InkPrimary
+                        )
+                        Text(
+                            text = if (batteryExempt) "UNRESTRICTED ✓" else "IMPORTANT",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (batteryExempt) SocialGreen else SocialPurple
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "Prevents Android/MIUI from stopping the blocker when you close SocialLite.",
+                        fontSize = 12.sp,
+                        color = InkSecondary
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Button(
+                        onClick = onRequestBatteryExempt,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (batteryExempt) SocialGreen else SocialPurple
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = if (batteryExempt) "24/7 Background Allowed ✓" else "Allow Unrestricted Background",
                             fontWeight = FontWeight.SemiBold,
                             color = Color.White
                         )

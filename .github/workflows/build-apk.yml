@@ -52,16 +52,19 @@ jobs:
         if: startsWith(github.ref, 'refs/heads/')
         with:
           tag_name: v1.0.0-${{ github.run_number }}
-          name: SocialLiteFree v1.4.0 (Build ${{ github.run_number }})
+          name: SocialLiteFree v1.5.0 (Build ${{ github.run_number }})
           body: |
-            ### 🚀 SocialLiteFree v1.4.0 (Build ${{ github.run_number }})
+            ### 🚀 SocialLiteFree v1.5.0 (Build ${{ github.run_number }})
 
-            **Choose the right APK for your needs:**
-            1. **`SocialLite-WebsiteClean.apk`** — **Direct Website / Chrome Install Edition** (Zero Accessibility/Overlay permissions, installs cleanly on all phones without Play Protect fraud block; includes full ad-free YouTube, Background Play, Instagram feed filter, Sleep Mode & Screen Time).
-            2. **`SocialLite-OriginalAppBlocker.apk`** — **Full Native Reels Blocker Edition** (Adds Android Accessibility Service to lock the Reels tab & exit Reels inside the official installed Instagram app; install via USB `adb install` or Google Play).
+            **New in v1.5.0:**
+            - **Reliable Repeat Blocking**: Blocks Reels & Shorts every single time (fixed single-trigger issue & hidden feed_tab bug with multi-window tracking + 250ms active watchdog).
+            - **Allow Sent Reels (Block Scrolling)**: Open & watch a single Reel sent to you in Instagram DMs, and automatically exit if you try to scroll to a second Reel!
+            - **YouTube Shorts Tab & Player Fix**: Improved Shorts tab lock overlay and modern YouTube Shorts player detection.
+            - **Keep Active 24/7 (When SocialLite is Closed)**: Added unrestricted battery exemption prompt so Android doesn't pause the blocker when swiping SocialLite from Recents.
 
-            **New in this release:**
-            - Built-in **Automatic Update Checker & Background Notification** when newer builds ship!
+            **APKs included:**
+            1. **`SocialLite-OriginalAppBlocker.apk`** — Full Native App Reels/Shorts Blocker Edition.
+            2. **`SocialLite-WebsiteClean.apk`** — Website / Chrome Direct Install Edition.
           files: |
             dist/SocialLite-WebsiteClean.apk
             dist/SocialLite-OriginalAppBlocker.apk

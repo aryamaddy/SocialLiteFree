@@ -33,6 +33,7 @@ class PreferencesManager(private val context: Context) {
 
         // Native Blocker rules (for original installed apps)
         val NATIVE_BLOCK_IG_REELS = booleanPreferencesKey("native_block_ig_reels")
+        val NATIVE_ALLOW_SENT_REELS = booleanPreferencesKey("native_allow_sent_reels")
         val NATIVE_LOCK_IG_REELS_TAB = booleanPreferencesKey("native_lock_ig_reels_tab")
         val NATIVE_BLOCK_IG_EXPLORE = booleanPreferencesKey("native_block_ig_explore")
         val NATIVE_BLOCK_YT_SHORTS = booleanPreferencesKey("native_block_yt_shorts")
@@ -157,6 +158,7 @@ class PreferencesManager(private val context: Context) {
 
     // Native Blocker flows
     val nativeBlockIgReels: Flow<Boolean> = getBoolean(NATIVE_BLOCK_IG_REELS, true)
+    val nativeAllowSentReels: Flow<Boolean> = getBoolean(NATIVE_ALLOW_SENT_REELS, true)
     val nativeLockIgReelsTab: Flow<Boolean> = getBoolean(NATIVE_LOCK_IG_REELS_TAB, true)
     val nativeBlockIgExplore: Flow<Boolean> = getBoolean(NATIVE_BLOCK_IG_EXPLORE, false)
     val nativeBlockYtShorts: Flow<Boolean> = getBoolean(NATIVE_BLOCK_YT_SHORTS, true)

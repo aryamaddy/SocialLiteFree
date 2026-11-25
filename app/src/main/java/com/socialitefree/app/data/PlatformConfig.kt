@@ -157,6 +157,7 @@ data class AppSettings(
 
     // Native App Blocker (Original Installed Apps)
     val nativeBlockIgReels: Boolean = true,
+    val nativeAllowSentReels: Boolean = true,
     val nativeLockIgReelsTab: Boolean = true,
     val nativeBlockIgExplore: Boolean = false,
     val nativeBlockYtShorts: Boolean = true,
