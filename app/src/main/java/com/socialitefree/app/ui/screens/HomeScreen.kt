@@ -26,13 +26,18 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.socialitefree.app.R
 import com.socialitefree.app.data.AppSettings
+import com.socialitefree.app.data.NativeAppHelper
 import com.socialitefree.app.data.Platform
 import com.socialitefree.app.data.PreferencesManager
 import com.socialitefree.app.data.rememberAppSettings
@@ -47,18 +52,58 @@ fun HomeScreen(
     onNavigateToPlatform: (String) -> Unit,
     onNavigateToSettings: () -> Unit
 ) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val settings = rememberAppSettings(prefsManager)
     val usageMap by prefsManager.getAllUsageSeconds().collectAsState(initial = emptyMap())
+    val nativeBlockedCount by prefsManager.nativeBlockedCount.collectAsState(initial = 0)
     val coroutineScope = rememberCoroutineScope()
 
-    // Collect visibility for each platform
+    var a11yEnabled by remember { mutableStateOf(NativeAppHelper.isAccessibilityEnabled(context)) }
+    var overlayEnabled by remember { mutableStateOf(NativeAppHelper.canDrawOverlays(context)) }
+
+    // Refresh Android permission statuses automatically whenever user returns from System Settings
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                a11yEnabled = NativeAppHelper.isAccessibilityEnabled(context)
+                overlayEnabled = NativeAppHelper.canDrawOverlays(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    // Collect visibility & native-launch preference for each platform
     val visiblePlatforms = Platform.entries.filter { platform ->
         val visible by prefsManager.isPlatformVisible(platform).collectAsState(initial = platform.defaultVisible)
         visible
     }
 
+    val preferNativeMap = Platform.entries.associate { platform ->
+        val pref by prefsManager.preferNativeApp(platform).collectAsState(initial = platform.defaultPreferNative)
+        platform.id to pref
+    }
+
     val pagerState = rememberPagerState(initialPage = 1, pageCount = { 3 })
     var showGuideSheet by remember { mutableStateOf(false) }
+    var pendingNativePlatform by remember { mutableStateOf<Platform?>(null) }
+
+    fun handlePlatformClick(platform: Platform) {
+        val wantsNative = preferNativeMap[platform.id] == true
+        val installedPkg = NativeAppHelper.findInstalledPackage(context, platform)
+        if (wantsNative && installedPkg != null) {
+            if (!NativeAppHelper.isAccessibilityEnabled(context)) {
+                a11yEnabled = false
+                overlayEnabled = NativeAppHelper.canDrawOverlays(context)
+                pendingNativePlatform = platform
+            } else {
+                NativeAppHelper.launchNativeApp(context, platform)
+            }
+        } else {
+            onNavigateToPlatform(platform.id)
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         HorizontalPager(
@@ -69,13 +114,21 @@ fun HomeScreen(
                 0 -> ScreenTimePage(
                     settings = settings,
                     usageMap = usageMap,
+                    nativeBlockedCount = nativeBlockedCount,
                     prefsManager = prefsManager,
                     onGoHome = { coroutineScope.launch { pagerState.animateScrollToPage(1) } }
                 )
                 1 -> LauncherHomePage(
                     settings = settings,
                     visiblePlatforms = visiblePlatforms,
-                    onNavigateToPlatform = onNavigateToPlatform,
+                    preferNativeMap = preferNativeMap,
+                    a11yEnabled = a11yEnabled,
+                    onPlatformClick = ::handlePlatformClick,
+                    onShieldClick = {
+                        a11yEnabled = NativeAppHelper.isAccessibilityEnabled(context)
+                        overlayEnabled = NativeAppHelper.canDrawOverlays(context)
+                        pendingNativePlatform = Platform.INSTAGRAM
+                    },
                     onNavigateToSettings = onNavigateToSettings,
                     onOpenGuide = { showGuideSheet = true },
                     onJumpToSleep = { coroutineScope.launch { pagerState.animateScrollToPage(2) } },
@@ -131,23 +184,50 @@ fun HomeScreen(
             QuickGuideSheetContent(onDismiss = { showGuideSheet = false })
         }
     }
+
+    pendingNativePlatform?.let { targetPlatform ->
+        ModalBottomSheet(
+            onDismissRequest = { pendingNativePlatform = null },
+            containerColor = CreamSurface
+        ) {
+            NativeBlockerSetupSheet(
+                platform = targetPlatform,
+                a11yEnabled = a11yEnabled,
+                overlayEnabled = overlayEnabled,
+                onEnableAccessibility = { NativeAppHelper.openAccessibilitySettings(context) },
+                onEnableOverlay = { NativeAppHelper.openOverlaySettings(context) },
+                onLaunchNativeAnyway = {
+                    pendingNativePlatform = null
+                    val launched = NativeAppHelper.launchNativeApp(context, targetPlatform)
+                    if (!launched) onNavigateToPlatform(targetPlatform.id)
+                },
+                onOpenCleanWebInstead = {
+                    pendingNativePlatform = null
+                    onNavigateToPlatform(targetPlatform.id)
+                }
+            )
+        }
+    }
 }
 
 @Composable
 private fun LauncherHomePage(
     settings: AppSettings,
     visiblePlatforms: List<Platform>,
-    onNavigateToPlatform: (String) -> Unit,
+    preferNativeMap: Map<String, Boolean>,
+    a11yEnabled: Boolean,
+    onPlatformClick: (Platform) -> Unit,
+    onShieldClick: () -> Unit,
     onNavigateToSettings: () -> Unit,
     onOpenGuide: () -> Unit,
     onJumpToSleep: () -> Unit,
     onJumpToScreenTime: () -> Unit
 ) {
+    val context = LocalContext.current
     val now = remember { LocalTime.now() }
     val inSleepWindow = settings.isInSleepWindow(now.hour, now.minute)
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // Warm cream botanical background matching base.apk home_bg.webp
         Image(
             painter = painterResource(id = R.drawable.home_bg),
             contentDescription = null,
@@ -164,7 +244,7 @@ private fun LauncherHomePage(
         ) {
             Spacer(modifier = Modifier.height(14.dp))
 
-            // Top Header: SocialLite / Focus forward + Settings Gear
+            // Top Header: SocialLite / Focus forward + Native Shield Pill + Settings Gear
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -186,25 +266,57 @@ private fun LauncherHomePage(
                     )
                 }
 
-                IconButton(
-                    onClick = onNavigateToSettings,
-                    modifier = Modifier
-                        .size(42.dp)
-                        .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.05f))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Settings,
-                        contentDescription = "Settings",
-                        tint = InkSecondary,
-                        modifier = Modifier.size(24.dp)
-                    )
+                    Surface(
+                        shape = RoundedCornerShape(50),
+                        color = if (a11yEnabled) SocialGreen.copy(alpha = 0.14f) else SocialPurpleSoft,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(50))
+                            .clickable(onClick = onShieldClick)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(7.dp)
+                                    .clip(CircleShape)
+                                    .background(if (a11yEnabled) SocialGreen else SocialPurple)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = if (a11yEnabled) "Shield ON" else "Enable Shield",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (a11yEnabled) SocialGreen else SocialPurple
+                            )
+                        }
+                    }
+
+                    IconButton(
+                        onClick = onNavigateToSettings,
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.05f))
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Settings,
+                            contentDescription = "Settings",
+                            tint = InkSecondary,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
                 }
             }
 
             Spacer(modifier = Modifier.height(22.dp))
 
-            // 2-Column 3D Glossy Painted Squircle Icon Grid (matching tut_home.webp)
+            // 2-Column 3D Glossy Painted Squircle Icon Grid
             LazyVerticalGrid(
                 columns = GridCells.Fixed(2),
                 horizontalArrangement = Arrangement.spacedBy(18.dp),
@@ -213,10 +325,13 @@ private fun LauncherHomePage(
                 modifier = Modifier.weight(1f)
             ) {
                 items(visiblePlatforms, key = { it.id }) { platform ->
+                    val usesNative = preferNativeMap[platform.id] == true &&
+                        NativeAppHelper.findInstalledPackage(context, platform) != null
                     PlatformSquircleTile(
                         platform = platform,
                         useClassicIcons = settings.useClassicIcons,
-                        onClick = { onNavigateToPlatform(platform.id) }
+                        isNativeMode = usesNative,
+                        onClick = { onPlatformClick(platform) }
                     )
                 }
             }
@@ -229,7 +344,6 @@ private fun LauncherHomePage(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Help '?' circle button
                 Box(
                     modifier = Modifier
                         .size(32.dp)
@@ -246,7 +360,6 @@ private fun LauncherHomePage(
                     )
                 }
 
-                // Center subtle Screen Time shortcut
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
@@ -269,7 +382,6 @@ private fun LauncherHomePage(
                     )
                 }
 
-                // Right Sleep / Bedtime shortcut
                 IconButton(
                     onClick = onJumpToSleep,
                     modifier = Modifier.size(34.dp)
@@ -290,6 +402,7 @@ private fun LauncherHomePage(
 private fun PlatformSquircleTile(
     platform: Platform,
     useClassicIcons: Boolean,
+    isNativeMode: Boolean,
     onClick: () -> Unit
 ) {
     Column(
@@ -322,7 +435,23 @@ private fun PlatformSquircleTile(
                     .clip(RoundedCornerShape(22.dp))
             )
 
-            if (platform.isBeta) {
+            if (isNativeMode) {
+                Surface(
+                    color = SocialGreen,
+                    shape = RoundedCornerShape(50),
+                    shadowElevation = 2.dp,
+                    modifier = Modifier.offset(x = (-6).dp, y = 4.dp)
+                ) {
+                    Text(
+                        text = "APP",
+                        color = Color.White,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        letterSpacing = 0.6.sp,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                    )
+                }
+            } else if (platform.isBeta) {
                 Surface(
                     color = SocialCoral,
                     shape = RoundedCornerShape(50),
@@ -354,9 +483,188 @@ private fun PlatformSquircleTile(
 }
 
 @Composable
+private fun NativeBlockerSetupSheet(
+    platform: Platform,
+    a11yEnabled: Boolean,
+    overlayEnabled: Boolean,
+    onEnableAccessibility: () -> Unit,
+    onEnableOverlay: () -> Unit,
+    onLaunchNativeAnyway: () -> Unit,
+    onOpenCleanWebInstead: () -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 22.dp),
+        contentPadding = PaddingValues(bottom = 28.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        item {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Rounded.VerifiedUser,
+                    contentDescription = null,
+                    tint = SocialPurple,
+                    modifier = Modifier.size(28.dp)
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Column {
+                    Text(
+                        text = "Original App Reels Blocker",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = InkPrimary
+                    )
+                    Text(
+                        text = "Blocks Reels & Shorts directly inside your real ${platform.displayName} app",
+                        fontSize = 12.sp,
+                        color = InkSecondary
+                    )
+                }
+            }
+        }
+
+        // Step 1: Accessibility Service
+        item {
+            Surface(
+                shape = RoundedCornerShape(18.dp),
+                color = CreamCard,
+                shadowElevation = 1.dp
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "1. Turn ON Content Blocker",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp,
+                            color = InkPrimary
+                        )
+                        Text(
+                            text = if (a11yEnabled) "ACTIVE ✓" else "REQUIRED",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = if (a11yEnabled) SocialGreen else SocialCoral
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "In Accessibility -> Downloaded apps, turn ON \"SocialLite Content Blocker\" so SocialLite can exit Reels automatically when opened or scrolled.",
+                        fontSize = 12.sp,
+                        color = InkSecondary
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Image(
+                        painter = painterResource(id = R.drawable.ob_native_a11y_hint),
+                        contentDescription = "Accessibility hint",
+                        contentScale = ContentScale.FillWidth,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Button(
+                        onClick = onEnableAccessibility,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (a11yEnabled) SocialGreen else SocialPurple
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = if (a11yEnabled) "Accessibility Enabled ✓" else "Open Accessibility Settings",
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color.White
+                        )
+                    }
+                }
+            }
+        }
+
+        // Step 2: Optional Overlay Permission
+        item {
+            Surface(
+                shape = RoundedCornerShape(18.dp),
+                color = CreamCard,
+                shadowElevation = 1.dp
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "2. Draw Over Other Apps",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp,
+                            color = InkPrimary
+                        )
+                        Text(
+                            text = if (overlayEnabled) "ALLOWED ✓" else "RECOMMENDED",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (overlayEnabled) SocialGreen else SocialAmber
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "Covers & locks the Reels tab button inside the original Instagram app.",
+                        fontSize = 12.sp,
+                        color = InkSecondary
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Button(
+                        onClick = onEnableOverlay,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (overlayEnabled) SocialGreen else InkPrimary
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = if (overlayEnabled) "Overlay Permission Allowed ✓" else "Allow Display Over Other Apps",
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color.White
+                        )
+                    }
+                }
+            }
+        }
+
+        item {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                OutlinedButton(
+                    onClick = onOpenCleanWebInstead,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("Open Web Instead", fontSize = 12.sp, color = InkPrimary)
+                }
+                Button(
+                    onClick = onLaunchNativeAnyway,
+                    colors = ButtonDefaults.buttonColors(containerColor = InkPrimary),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("Open ${platform.displayName}", fontSize = 12.sp, color = Color.White)
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun ScreenTimePage(
     settings: AppSettings,
     usageMap: Map<String, Int>,
+    nativeBlockedCount: Int,
     prefsManager: PreferencesManager,
     onGoHome: () -> Unit
 ) {
@@ -409,7 +717,6 @@ private fun ScreenTimePage(
                 }
             }
 
-            // Summary Card backed by status_card.webp
             item {
                 Box(
                     modifier = Modifier
@@ -452,7 +759,7 @@ private fun ScreenTimePage(
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "Ads, Shorts & Algorithmic Traps Blocked",
+                                text = "$nativeBlockedCount Reels / Shorts caught in native apps",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Medium,
                                 color = SocialGreen
@@ -462,7 +769,6 @@ private fun ScreenTimePage(
                 }
             }
 
-            // Quick Grayscale Well-Being Card
             item {
                 Surface(
                     shape = RoundedCornerShape(18.dp),
@@ -501,7 +807,6 @@ private fun ScreenTimePage(
                 }
             }
 
-            // Per-Platform Breakdown
             item {
                 Text(
                     text = "BY PLATFORM",
@@ -635,7 +940,6 @@ private fun SleepModePage(
 
             Spacer(modifier = Modifier.height(22.dp))
 
-            // Main Enable Card
             Surface(
                 shape = RoundedCornerShape(20.dp),
                 color = SleepNightCard.copy(alpha = 0.88f)
@@ -674,7 +978,6 @@ private fun SleepModePage(
                     Divider(color = Color.White.copy(alpha = 0.1f))
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // Bedtime Start Hour Adjuster
                     HourSelectorRow(
                         label = "Bedtime Starts",
                         hour = settings.sleepStartHour,
@@ -689,7 +992,6 @@ private fun SleepModePage(
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    // Wake Up Hour Adjuster
                     HourSelectorRow(
                         label = "Wake Up Time",
                         hour = settings.sleepEndHour,
@@ -771,28 +1073,28 @@ private fun QuickGuideSheetContent(onDismiss: () -> Unit) {
         )
         Spacer(modifier = Modifier.height(6.dp))
         Text(
-            text = "All Pro features are unlocked and 100% free — no ads, no subscriptions.",
+            text = "Blocks Reels & Shorts both in your original installed apps AND inside the ad-free browser.",
             fontSize = 14.sp,
             color = InkSecondary
         )
         Spacer(modifier = Modifier.height(18.dp))
 
         GuideItem(
+            icon = Icons.Rounded.VerifiedUser,
+            title = "Original Instagram App Reels Blocker",
+            desc = "Enable SocialLite Content Blocker in Accessibility Settings to lock the Reels tab and stop Reels scrolling inside your original Instagram app."
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        GuideItem(
             icon = Icons.Rounded.Menu,
             title = "Floating Browser Pill Menu",
-            desc = "Inside any platform, tap the translucent ≡ button in the bottom-right to go Back, Home, Refresh, Switch Apps, or change platform filters live."
+            desc = "For web platforms like ad-free YouTube, tap the translucent ≡ button in the bottom-right to navigate or change filters live."
         )
         Spacer(modifier = Modifier.height(12.dp))
         GuideItem(
             icon = Icons.Rounded.TouchApp,
             title = "Swipe Left or Right on Home",
-            desc = "Swipe left for Screen Time tracking & Grayscale Mode, or swipe right for Sleep Mode downtime scheduling."
-        )
-        Spacer(modifier = Modifier.height(12.dp))
-        GuideItem(
-            icon = Icons.Rounded.Palette,
-            title = "Painted 3D or Classic Icons",
-            desc = "Customize which apps show on your Home grid and switch between Painted 3D or Classic icons in Settings."
+            desc = "Swipe left for Screen Time & Blocked count, or swipe right for Sleep Mode downtime scheduling."
         )
 
         Spacer(modifier = Modifier.height(22.dp))

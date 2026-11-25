@@ -22,11 +22,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.socialitefree.app.R
+import com.socialitefree.app.data.NativeAppHelper
 import com.socialitefree.app.data.Platform
 import com.socialitefree.app.data.PreferencesManager
 import com.socialitefree.app.data.rememberAppSettings
@@ -39,15 +43,32 @@ fun SettingsScreen(
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val coroutineScope = rememberCoroutineScope()
     val settings = rememberAppSettings(prefsManager)
 
+    var a11yEnabled by remember { mutableStateOf(NativeAppHelper.isAccessibilityEnabled(context)) }
+    var overlayEnabled by remember { mutableStateOf(NativeAppHelper.canDrawOverlays(context)) }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                a11yEnabled = NativeAppHelper.isAccessibilityEnabled(context)
+                overlayEnabled = NativeAppHelper.canDrawOverlays(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     var showClearDataDialog by remember { mutableStateOf(false) }
     var showFavoritePicker by remember { mutableStateOf(false) }
-    var expandedPlatformId by remember { mutableStateOf<String?>("youtube") }
+    var expandedPlatformId by remember { mutableStateOf<String?>("instagram") }
+
+    val igPreferNative by prefsManager.preferNativeApp(Platform.INSTAGRAM).collectAsState(initial = true)
+    val ytPreferNative by prefsManager.preferNativeApp(Platform.YOUTUBE).collectAsState(initial = false)
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // Authentic warm settings background (settings_bg.webp)
         Image(
             painter = painterResource(id = R.drawable.settings_bg),
             contentDescription = null,
@@ -61,7 +82,6 @@ fun SettingsScreen(
                 .statusBarsPadding()
                 .navigationBarsPadding()
         ) {
-            // Top Bar matching tut_settings.webp ("Settings" centered + pill "Done" button)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -101,7 +121,7 @@ fun SettingsScreen(
                 contentPadding = PaddingValues(top = 4.dp, bottom = 36.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // 1. Pro Status Banner Card (matching tut_settings.webp)
+                // 1. Pro Status Banner Card
                 item {
                     SettingsCard {
                         Row(
@@ -154,7 +174,133 @@ fun SettingsScreen(
                     }
                 }
 
-                // 2. App Icons Style (Painted 3D vs Classic)
+                // 2. Native App Blocker (Original Installed Apps)
+                item {
+                    SettingsSectionHeader(Icons.Rounded.VerifiedUser, "ORIGINAL APP REELS BLOCKER")
+                    Spacer(modifier = Modifier.height(6.dp))
+                    SettingsCard {
+                        Column {
+                            // Accessibility Service Permission Row
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { NativeAppHelper.openAccessibilitySettings(context) }
+                                    .padding(horizontal = 16.dp, vertical = 13.dp)
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Accessibility Blocker Service",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = InkPrimary
+                                    )
+                                    Text(
+                                        text = if (a11yEnabled) "Running — protects original installed apps"
+                                        else "Tap to turn ON SocialLite Content Blocker",
+                                        fontSize = 12.sp,
+                                        color = if (a11yEnabled) SocialGreen else SocialCoral
+                                    )
+                                }
+                                Text(
+                                    text = if (a11yEnabled) "ACTIVE" else "ENABLE",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = if (a11yEnabled) SocialGreen else SocialPurple
+                                )
+                            }
+                            HairlineDivider()
+
+                            // Overlay Permission Row
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { NativeAppHelper.openOverlaySettings(context) }
+                                    .padding(horizontal = 16.dp, vertical = 13.dp)
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Lock Tab Overlay Permission",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = InkPrimary
+                                    )
+                                    Text(
+                                        text = if (overlayEnabled) "Allowed — covers Reels tab inside Instagram"
+                                        else "Tap to allow drawing lock over Reels tab",
+                                        fontSize = 12.sp,
+                                        color = InkSecondary
+                                    )
+                                }
+                                Text(
+                                    text = if (overlayEnabled) "ALLOWED" else "ALLOW",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = if (overlayEnabled) SocialGreen else SocialAmber
+                                )
+                            }
+                            HairlineDivider()
+
+                            // Native Launch Modes
+                            SettingsSwitchRow(
+                                title = "Open Original Instagram App",
+                                subtitle = "Tapping Instagram opens the real installed app instead of web",
+                                checked = igPreferNative
+                            ) {
+                                coroutineScope.launch {
+                                    prefsManager.setBoolean(PreferencesManager.preferNativeKey(Platform.INSTAGRAM.id), it)
+                                }
+                            }
+                            HairlineDivider()
+                            SettingsSwitchRow(
+                                title = "Open Original YouTube App",
+                                subtitle = "Off = Ad-free & background play WebView; On = Real YouTube app",
+                                checked = ytPreferNative
+                            ) {
+                                coroutineScope.launch {
+                                    prefsManager.setBoolean(PreferencesManager.preferNativeKey(Platform.YOUTUBE.id), it)
+                                }
+                            }
+                            HairlineDivider()
+
+                            // Native Blocking Rules
+                            SettingsSwitchRow(
+                                title = "Block Reels in Original Instagram",
+                                subtitle = "Stops Reels scrolling & exits Reels viewer instantly",
+                                checked = settings.nativeBlockIgReels
+                            ) {
+                                coroutineScope.launch { prefsManager.setBoolean(PreferencesManager.NATIVE_BLOCK_IG_REELS, it) }
+                            }
+                            HairlineDivider()
+                            SettingsSwitchRow(
+                                title = "Cover Reels Tab in Instagram",
+                                subtitle = "Locks the Reels tab button in bottom bar",
+                                checked = settings.nativeLockIgReelsTab
+                            ) {
+                                coroutineScope.launch { prefsManager.setBoolean(PreferencesManager.NATIVE_LOCK_IG_REELS_TAB, it) }
+                            }
+                            HairlineDivider()
+                            SettingsSwitchRow(
+                                title = "Block Explore in Original Instagram",
+                                subtitle = "Redirects out of Explore feed",
+                                checked = settings.nativeBlockIgExplore
+                            ) {
+                                coroutineScope.launch { prefsManager.setBoolean(PreferencesManager.NATIVE_BLOCK_IG_EXPLORE, it) }
+                            }
+                            HairlineDivider()
+                            SettingsSwitchRow(
+                                title = "Block Shorts in Original YouTube",
+                                subtitle = "Covers Shorts tab & exits Shorts player",
+                                checked = settings.nativeBlockYtShorts
+                            ) {
+                                coroutineScope.launch { prefsManager.setBoolean(PreferencesManager.NATIVE_BLOCK_YT_SHORTS, it) }
+                            }
+                        }
+                    }
+                }
+
+                // 3. App Icons Style (Painted 3D vs Classic)
                 item {
                     SettingsSectionHeader(Icons.Rounded.Palette, "APP ICONS")
                     Spacer(modifier = Modifier.height(6.dp))
@@ -185,7 +331,7 @@ fun SettingsScreen(
                     }
                 }
 
-                // 3. Auto App Launch (matching tut_settings.webp)
+                // 4. Auto App Launch
                 item {
                     SettingsSectionHeader(Icons.Rounded.Bolt, "AUTO APP LAUNCH")
                     Spacer(modifier = Modifier.height(6.dp))
@@ -208,7 +354,7 @@ fun SettingsScreen(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text("Favorite App", fontSize = 14.sp, color = InkPrimary)
-                                    val fav = Platform.fromId(settings.favoritePlatformId) ?: Platform.YOUTUBE
+                                    val fav = Platform.fromId(settings.favoritePlatformId) ?: Platform.INSTAGRAM
                                     Text(
                                         text = "${fav.displayName} ▾",
                                         fontSize = 14.sp,
@@ -219,22 +365,16 @@ fun SettingsScreen(
                             }
                         }
                     }
-                    Text(
-                        text = "Automatically open your favorite app every time you launch SocialLite.",
-                        fontSize = 12.sp,
-                        color = InkSecondary,
-                        modifier = Modifier.padding(top = 6.dp, start = 4.dp, end = 4.dp)
-                    )
                 }
 
-                // 4. General Well-Being
+                // 5. General Well-Being
                 item {
                     SettingsSectionHeader(Icons.Rounded.Spa, "WELL-BEING")
                     Spacer(modifier = Modifier.height(6.dp))
                     SettingsCard {
                         SettingsSwitchRow(
                             title = "Grayscale Mode",
-                            subtitle = "Makes feeds less stimulating across all apps",
+                            subtitle = "Makes feeds less stimulating across web apps",
                             checked = settings.grayscaleMode
                         ) {
                             coroutineScope.launch { prefsManager.setBoolean(PreferencesManager.GRAYSCALE_MODE, it) }
@@ -242,7 +382,7 @@ fun SettingsScreen(
                     }
                 }
 
-                // 5. Visible Apps on Home Grid
+                // 6. Visible Apps on Home Grid
                 item {
                     SettingsSectionHeader(Icons.Rounded.Apps, "HOME GRID APPS")
                     Spacer(modifier = Modifier.height(6.dp))
@@ -290,13 +430,12 @@ fun SettingsScreen(
                     }
                 }
 
-                // 6. Platform Filter Controls
+                // 7. Web Container Content Filters
                 item {
-                    SettingsSectionHeader(Icons.Rounded.Tune, "CONTENT FILTERS")
+                    SettingsSectionHeader(Icons.Rounded.Tune, "WEB CONTENT FILTERS")
                     Spacer(modifier = Modifier.height(6.dp))
                     SettingsCard {
                         Column {
-                            // YouTube
                             PlatformFilterAccordion(
                                 platform = Platform.YOUTUBE,
                                 expanded = expandedPlatformId == Platform.YOUTUBE.id,
@@ -331,7 +470,6 @@ fun SettingsScreen(
 
                             HairlineDivider()
 
-                            // Instagram
                             PlatformFilterAccordion(
                                 platform = Platform.INSTAGRAM,
                                 expanded = expandedPlatformId == Platform.INSTAGRAM.id,
@@ -339,30 +477,29 @@ fun SettingsScreen(
                                     expandedPlatformId = if (expandedPlatformId == Platform.INSTAGRAM.id) null else Platform.INSTAGRAM.id
                                 }
                             ) {
-                                SettingsSwitchRow("Hide Ads & Sponsored", "Filters sponsored feed units", settings.igHideAds) {
+                                SettingsSwitchRow("Hide Ads & Sponsored", "Filters sponsored feed units (Web)", settings.igHideAds) {
                                     coroutineScope.launch { prefsManager.setBoolean(PreferencesManager.IG_HIDE_ADS, it) }
                                 }
                                 HairlineDivider()
-                                SettingsSwitchRow("Hide Suggested Posts", "Stops 'Suggested for you' feed clutter", settings.igHideSuggested) {
+                                SettingsSwitchRow("Hide Suggested Posts", "Stops 'Suggested for you' clutter (Web)", settings.igHideSuggested) {
                                     coroutineScope.launch { prefsManager.setBoolean(PreferencesManager.IG_HIDE_SUGGESTED, it) }
                                 }
                                 HairlineDivider()
-                                SettingsSwitchRow("Block Reels", "Hides Reels tab & blocks infinite loops", settings.igBlockReels) {
+                                SettingsSwitchRow("Block Reels", "Hides Reels tab & blocks loops (Web)", settings.igBlockReels) {
                                     coroutineScope.launch { prefsManager.setBoolean(PreferencesManager.IG_BLOCK_REELS, it) }
                                 }
                                 HairlineDivider()
-                                SettingsSwitchRow("Hide Comments", "Hides comment sections", settings.igHideComments) {
+                                SettingsSwitchRow("Hide Comments", "Hides comment sections (Web)", settings.igHideComments) {
                                     coroutineScope.launch { prefsManager.setBoolean(PreferencesManager.IG_HIDE_COMMENTS, it) }
                                 }
                                 HairlineDivider()
-                                SettingsSwitchRow("Block Post Creation", "Disables create/upload buttons", settings.igBlockPosting) {
+                                SettingsSwitchRow("Block Post Creation", "Disables create/upload buttons (Web)", settings.igBlockPosting) {
                                     coroutineScope.launch { prefsManager.setBoolean(PreferencesManager.IG_BLOCK_POSTING, it) }
                                 }
                             }
 
                             HairlineDivider()
 
-                            // X / Twitter
                             PlatformFilterAccordion(
                                 platform = Platform.TWITTER,
                                 expanded = expandedPlatformId == Platform.TWITTER.id,
@@ -381,7 +518,6 @@ fun SettingsScreen(
 
                             HairlineDivider()
 
-                            // TikTok
                             PlatformFilterAccordion(
                                 platform = Platform.TIKTOK,
                                 expanded = expandedPlatformId == Platform.TIKTOK.id,
@@ -408,7 +544,6 @@ fun SettingsScreen(
 
                             HairlineDivider()
 
-                            // Facebook
                             PlatformFilterAccordion(
                                 platform = Platform.FACEBOOK,
                                 expanded = expandedPlatformId == Platform.FACEBOOK.id,
@@ -431,7 +566,6 @@ fun SettingsScreen(
 
                             HairlineDivider()
 
-                            // Reddit
                             PlatformFilterAccordion(
                                 platform = Platform.REDDIT,
                                 expanded = expandedPlatformId == Platform.REDDIT.id,
@@ -451,7 +585,7 @@ fun SettingsScreen(
                     }
                 }
 
-                // 7. Data & About (matching tut_settings.webp)
+                // 8. Data & About
                 item {
                     SettingsSectionHeader(Icons.Rounded.Info, "DATA & ABOUT")
                     Spacer(modifier = Modifier.height(6.dp))
@@ -492,7 +626,7 @@ fun SettingsScreen(
                                     .padding(horizontal = 16.dp, vertical = 14.dp)
                             ) {
                                 Text("Version", fontSize = 15.sp, color = InkPrimary)
-                                Text("1.3.1 (Free)", fontSize = 15.sp, color = InkSecondary)
+                                Text("1.3.1 (Free + Native Blocker)", fontSize = 15.sp, color = InkSecondary)
                             }
                         }
                     }
@@ -505,7 +639,7 @@ fun SettingsScreen(
         AlertDialog(
             onDismissRequest = { showClearDataDialog = false },
             title = { Text("Clear All Browsing Data?") },
-            text = { Text("This will log you out of social sites inside SocialLite and clear cached pages and cookies.") },
+            text = { Text("This will log you out of web sessions inside SocialLite and clear cached pages and cookies.") },
             confirmButton = {
                 TextButton(
                     onClick = {

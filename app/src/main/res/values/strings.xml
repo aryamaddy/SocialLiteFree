@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">SocialLite</string>
+    <string name="accessibility_blocker_description">Detects and blocks Reels, Shorts, and addictive feeds inside your installed social media apps so you stay focused.</string>
 </resources>

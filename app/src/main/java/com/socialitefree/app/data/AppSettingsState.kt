@@ -9,7 +9,14 @@ import androidx.compose.runtime.remember
 fun rememberAppSettings(prefsManager: PreferencesManager): AppSettings {
     val useClassicIcons by prefsManager.useClassicIcons.collectAsState(initial = false)
     val autoAppLaunch by prefsManager.autoAppLaunch.collectAsState(initial = false)
-    val favoritePlatformId by prefsManager.defaultPlatform.collectAsState(initial = "youtube")
+    val favoritePlatformId by prefsManager.defaultPlatform.collectAsState(initial = "instagram")
+
+    val nativeBlockIgReels by prefsManager.nativeBlockIgReels.collectAsState(initial = true)
+    val nativeLockIgReelsTab by prefsManager.nativeLockIgReelsTab.collectAsState(initial = true)
+    val nativeBlockIgExplore by prefsManager.nativeBlockIgExplore.collectAsState(initial = false)
+    val nativeBlockYtShorts by prefsManager.nativeBlockYtShorts.collectAsState(initial = true)
+    val nativeBlockFbReels by prefsManager.nativeBlockFbReels.collectAsState(initial = true)
+    val nativeBlockSnapSpotlight by prefsManager.nativeBlockSnapSpotlight.collectAsState(initial = true)
 
     val ytBlockAds by prefsManager.ytBlockAds.collectAsState(initial = true)
     val ytHideShorts by prefsManager.ytHideShorts.collectAsState(initial = true)
@@ -53,6 +60,7 @@ fun rememberAppSettings(prefsManager: PreferencesManager): AppSettings {
 
     return remember(
         useClassicIcons, autoAppLaunch, favoritePlatformId,
+        nativeBlockIgReels, nativeLockIgReelsTab, nativeBlockIgExplore, nativeBlockYtShorts, nativeBlockFbReels, nativeBlockSnapSpotlight,
         ytBlockAds, ytHideShorts, ytHideComments, ytHideRecs, ytBgPlay, ytSearchOnly, ytBlockFeedAutoplay,
         igHideAds, igHideSuggested, igBlockReels, igHideComments, igBlockPosting, igReelsBudget,
         ttBlockExplore, ttBlockLive, ttBlockShop, ttBlockUpload, ttBlockSearch, ttBlockComments,
@@ -65,6 +73,12 @@ fun rememberAppSettings(prefsManager: PreferencesManager): AppSettings {
             useClassicIcons = useClassicIcons,
             autoAppLaunch = autoAppLaunch,
             favoritePlatformId = favoritePlatformId,
+            nativeBlockIgReels = nativeBlockIgReels,
+            nativeLockIgReelsTab = nativeLockIgReelsTab,
+            nativeBlockIgExplore = nativeBlockIgExplore,
+            nativeBlockYtShorts = nativeBlockYtShorts,
+            nativeBlockFbReels = nativeBlockFbReels,
+            nativeBlockSnapSpotlight = nativeBlockSnapSpotlight,
             ytBlockAds = ytBlockAds,
             ytHideShorts = ytHideShorts,
             ytHideComments = ytHideComments,

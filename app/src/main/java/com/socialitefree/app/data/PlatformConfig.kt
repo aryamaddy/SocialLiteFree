@@ -15,6 +15,8 @@ enum class Platform(
     @DrawableRes val classicIconRes: Int,
     @DrawableRes val gearIconRes: Int,
     @DrawableRes val settingsBannerRes: Int?,
+    val nativePackages: List<String>,
+    val defaultPreferNative: Boolean = false,
     val isBeta: Boolean = false,
     val defaultVisible: Boolean = true
 ) {
@@ -28,6 +30,8 @@ enum class Platform(
         classicIconRes = R.drawable.ic_instagram_classic,
         gearIconRes = R.drawable.gear_instagram,
         settingsBannerRes = R.drawable.settings_banner_instagram,
+        nativePackages = listOf("com.instagram.android"),
+        defaultPreferNative = true,
         isBeta = false,
         defaultVisible = true
     ),
@@ -41,6 +45,8 @@ enum class Platform(
         classicIconRes = R.drawable.ic_youtube_classic,
         gearIconRes = R.drawable.gear_youtube,
         settingsBannerRes = R.drawable.settings_banner_youtube,
+        nativePackages = listOf("com.google.android.youtube"),
+        defaultPreferNative = false,
         isBeta = false,
         defaultVisible = true
     ),
@@ -54,6 +60,8 @@ enum class Platform(
         classicIconRes = R.drawable.ic_twitter_classic,
         gearIconRes = R.drawable.gear_x,
         settingsBannerRes = R.drawable.settings_banner_x,
+        nativePackages = listOf("com.twitter.android"),
+        defaultPreferNative = false,
         isBeta = true,
         defaultVisible = true
     ),
@@ -67,6 +75,8 @@ enum class Platform(
         classicIconRes = R.drawable.ic_snapchat_classic,
         gearIconRes = R.drawable.gear_snapchat,
         settingsBannerRes = null,
+        nativePackages = listOf("com.snapchat.android"),
+        defaultPreferNative = false,
         isBeta = true,
         defaultVisible = true
     ),
@@ -80,6 +90,8 @@ enum class Platform(
         classicIconRes = R.drawable.ic_facebook_classic,
         gearIconRes = R.drawable.gear_facebook,
         settingsBannerRes = null,
+        nativePackages = listOf("com.facebook.katana"),
+        defaultPreferNative = false,
         isBeta = true,
         defaultVisible = true
     ),
@@ -93,6 +105,8 @@ enum class Platform(
         classicIconRes = R.drawable.ic_tiktok_classic,
         gearIconRes = R.drawable.gear_tiktok,
         settingsBannerRes = null,
+        nativePackages = listOf("com.zhiliaoapp.musically", "com.ss.android.ugc.trill"),
+        defaultPreferNative = false,
         isBeta = true,
         defaultVisible = true
     ),
@@ -106,6 +120,8 @@ enum class Platform(
         classicIconRes = R.drawable.reddit_ios,
         gearIconRes = R.drawable.gear_painted,
         settingsBannerRes = null,
+        nativePackages = listOf("com.reddit.frontpage"),
+        defaultPreferNative = false,
         isBeta = false,
         defaultVisible = false
     ),
@@ -119,6 +135,8 @@ enum class Platform(
         classicIconRes = R.drawable.ic_linkedin_classic,
         gearIconRes = R.drawable.gear_painted,
         settingsBannerRes = null,
+        nativePackages = listOf("com.linkedin.android"),
+        defaultPreferNative = false,
         isBeta = false,
         defaultVisible = false
     );
@@ -134,7 +152,15 @@ data class AppSettings(
     // Appearance & Launch
     val useClassicIcons: Boolean = false,
     val autoAppLaunch: Boolean = false,
-    val favoritePlatformId: String = "youtube",
+    val favoritePlatformId: String = "instagram",
+
+    // Native App Blocker (Original Installed Apps)
+    val nativeBlockIgReels: Boolean = true,
+    val nativeLockIgReelsTab: Boolean = true,
+    val nativeBlockIgExplore: Boolean = false,
+    val nativeBlockYtShorts: Boolean = true,
+    val nativeBlockFbReels: Boolean = true,
+    val nativeBlockSnapSpotlight: Boolean = true,
 
     // YouTube
     val ytBlockAds: Boolean = true,

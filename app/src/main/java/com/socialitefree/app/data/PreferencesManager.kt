@@ -27,8 +27,18 @@ class PreferencesManager(private val context: Context) {
         val AUTO_APP_LAUNCH = booleanPreferencesKey("auto_app_launch")
         val DEFAULT_PLATFORM = stringPreferencesKey("default_platform")
 
-        // Visibility toggles per platform
+        // Visibility & Native App Launch preferences
         fun showPlatformKey(platformId: String) = booleanPreferencesKey("show_platform_$platformId")
+        fun preferNativeKey(platformId: String) = booleanPreferencesKey("prefer_native_$platformId")
+
+        // Native Blocker rules (for original installed apps)
+        val NATIVE_BLOCK_IG_REELS = booleanPreferencesKey("native_block_ig_reels")
+        val NATIVE_LOCK_IG_REELS_TAB = booleanPreferencesKey("native_lock_ig_reels_tab")
+        val NATIVE_BLOCK_IG_EXPLORE = booleanPreferencesKey("native_block_ig_explore")
+        val NATIVE_BLOCK_YT_SHORTS = booleanPreferencesKey("native_block_yt_shorts")
+        val NATIVE_BLOCK_FB_REELS = booleanPreferencesKey("native_block_fb_reels")
+        val NATIVE_BLOCK_SNAP_SPOTLIGHT = booleanPreferencesKey("native_block_snap_spotlight")
+        val NATIVE_BLOCKED_COUNT = intPreferencesKey("native_blocked_count")
 
         // Usage tracking per platform (seconds)
         fun usageSecondsKey(platformId: String) = intPreferencesKey("usage_sec_$platformId")
@@ -106,6 +116,15 @@ class PreferencesManager(private val context: Context) {
     fun isPlatformVisible(platform: Platform): Flow<Boolean> =
         getBoolean(showPlatformKey(platform.id), platform.defaultVisible)
 
+    fun preferNativeApp(platform: Platform): Flow<Boolean> =
+        getBoolean(preferNativeKey(platform.id), platform.defaultPreferNative)
+
+    suspend fun incrementNativeBlockedCount() {
+        context.dataStore.edit { prefs ->
+            prefs[NATIVE_BLOCKED_COUNT] = (prefs[NATIVE_BLOCKED_COUNT] ?: 0) + 1
+        }
+    }
+
     suspend fun addUsageSeconds(platformId: String, deltaSeconds: Int) {
         val today = LocalDate.now().toString()
         context.dataStore.edit { prefs ->
@@ -133,7 +152,16 @@ class PreferencesManager(private val context: Context) {
     // Appearance & Launch flows
     val useClassicIcons: Flow<Boolean> = getBoolean(USE_CLASSIC_ICONS, false)
     val autoAppLaunch: Flow<Boolean> = getBoolean(AUTO_APP_LAUNCH, false)
-    val defaultPlatform: Flow<String> = getString(DEFAULT_PLATFORM, "youtube")
+    val defaultPlatform: Flow<String> = getString(DEFAULT_PLATFORM, "instagram")
+
+    // Native Blocker flows
+    val nativeBlockIgReels: Flow<Boolean> = getBoolean(NATIVE_BLOCK_IG_REELS, true)
+    val nativeLockIgReelsTab: Flow<Boolean> = getBoolean(NATIVE_LOCK_IG_REELS_TAB, true)
+    val nativeBlockIgExplore: Flow<Boolean> = getBoolean(NATIVE_BLOCK_IG_EXPLORE, false)
+    val nativeBlockYtShorts: Flow<Boolean> = getBoolean(NATIVE_BLOCK_YT_SHORTS, true)
+    val nativeBlockFbReels: Flow<Boolean> = getBoolean(NATIVE_BLOCK_FB_REELS, true)
+    val nativeBlockSnapSpotlight: Flow<Boolean> = getBoolean(NATIVE_BLOCK_SNAP_SPOTLIGHT, true)
+    val nativeBlockedCount: Flow<Int> = getInt(NATIVE_BLOCKED_COUNT, 0)
 
     // YouTube flows
     val ytBlockAds: Flow<Boolean> = getBoolean(YT_BLOCK_ADS, true)
