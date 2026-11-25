@@ -7,6 +7,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -18,6 +19,8 @@ import com.socialitefree.app.ui.screens.BrowserScreen
 import com.socialitefree.app.ui.screens.HomeScreen
 import com.socialitefree.app.ui.screens.SettingsScreen
 import com.socialitefree.app.ui.theme.SocialLiteFreeTheme
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 
 class MainActivity : ComponentActivity() {
 
@@ -29,6 +32,10 @@ class MainActivity : ComponentActivity() {
 
         preferencesManager = PreferencesManager.getInstance(applicationContext)
 
+        val autoLaunch = runBlocking { preferencesManager.autoAppLaunch.first() }
+        val favPlatform = runBlocking { preferencesManager.defaultPlatform.first() }
+        val initialRoute = if (autoLaunch && favPlatform.isNotBlank()) "browser/$favPlatform" else "home"
+
         setContent {
             SocialLiteFreeTheme {
                 Surface(
@@ -39,10 +46,11 @@ class MainActivity : ComponentActivity() {
 
                     NavHost(
                         navController = navController,
-                        startDestination = "home"
+                        startDestination = initialRoute
                     ) {
                         composable("home") {
                             HomeScreen(
+                                prefsManager = preferencesManager,
                                 onNavigateToPlatform = { platformId ->
                                     navController.navigate("browser/$platformId")
                                 },
@@ -63,7 +71,14 @@ class MainActivity : ComponentActivity() {
                                 platformId = platformId,
                                 prefsManager = preferencesManager,
                                 onNavigateHome = {
-                                    navController.popBackStack("home", inclusive = false)
+                                    navController.navigate("home") {
+                                        popUpTo(0) { inclusive = true }
+                                    }
+                                },
+                                onSwitchPlatform = { newId ->
+                                    navController.navigate("browser/$newId") {
+                                        popUpTo("home") { inclusive = false }
+                                    }
                                 }
                             )
                         }

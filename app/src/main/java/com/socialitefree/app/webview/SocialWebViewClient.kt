@@ -29,25 +29,52 @@ class SocialWebViewClient(
         val url = request?.url ?: return false
         val scheme = url.scheme?.lowercase()
 
-        // Block intent:// and app-specific custom schemes that try to open installed apps
+        // Block intent:// and native deep-link schemes that try to bounce out of SocialLite
         if (scheme != "http" && scheme != "https") {
-            Log.d(TAG, "Blocked non-web navigation scheme: $scheme ($url)")
+            Log.d(TAG, "Blocked external scheme: $scheme ($url)")
             return true
         }
 
-        // Allow all web URLs to stay inside WebView
+        // Redirect blocked Reels/Shorts URLs when enabled
+        val settings = getSettings()
+        val host = url.host?.lowercase() ?: ""
+        val path = url.path?.lowercase() ?: ""
+
+        if (platform == Platform.INSTAGRAM && settings.igBlockReels && host.contains("instagram.com")) {
+            if (path == "/reels" || path.startsWith("/reels/") || path.startsWith("/reel/")) {
+                view?.loadUrl("https://www.instagram.com/")
+                return true
+            }
+        }
+
+        if (platform == Platform.YOUTUBE && settings.ytHideShorts && host.contains("youtube.com")) {
+            if (path.startsWith("/shorts/")) {
+                view?.loadUrl("https://m.youtube.com/")
+                return true
+            }
+        }
+
         return false
     }
 
     override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
         super.onPageStarted(view, url, favicon)
-        Log.d(TAG, "onPageStarted: $url")
+        // Early injection for scripts that hook JSON.parse / fetch (YouTube & Instagram)
+        if (platform == Platform.INSTAGRAM || platform == Platform.YOUTUBE) {
+            injectPlatformScript(view)
+        }
     }
 
     override fun onPageFinished(view: WebView?, url: String?) {
         super.onPageFinished(view, url)
-        Log.d(TAG, "onPageFinished: $url")
-        injectScripts(view)
+        reinjectScripts(view)
+        onPageFinishedCallback?.invoke(url)
+    }
+
+    override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
+        super.doUpdateVisitedHistory(view, url, isReload)
+        // SPA navigation support (YouTube, Instagram, X, Reddit)
+        reinjectScripts(view)
         onPageFinishedCallback?.invoke(url)
     }
 
@@ -60,46 +87,96 @@ class SocialWebViewClient(
 
     override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: SslError?) {
         Log.e(TAG, "SSL Error: $error")
-        // Proceed or super depending on standard
         super.onReceivedSslError(view, handler, error)
     }
 
-    private fun injectScripts(view: WebView?) {
+    fun reinjectScripts(view: WebView?) {
         if (view == null) return
         val settings = getSettings()
 
         try {
-            // 1. Inject common controls first (grayscale, open-app prompt blocking)
+            // 1. Common controls (grayscale + open-app banner dismissal)
             val commonJs = readAsset("js/common_controls.js")
             if (commonJs.isNotEmpty()) {
                 val injectedCommon = commonJs.replace("/*CONFIG*/{}", settings.toCommonConfigJson())
                 view.evaluateJavascript(injectedCommon, null)
             }
 
-            // 2. Inject platform-specific controls
-            val platformJs = readAsset(platform.jsScriptAsset)
-            if (platformJs.isNotEmpty()) {
-                val injectedPlatform = when (platform) {
-                    Platform.YOUTUBE -> {
-                        // YouTube personal.js uses __CONFIG__ placeholder
-                        platformJs.replace("__CONFIG__", settings.toPlatformConfigJson(platform))
-                    }
-                    Platform.INSTAGRAM -> {
-                        // Instagram feed_response_filter.js uses /*CONFIG*/null and __NAMESPACE__
-                        platformJs
-                            .replace("/*CONFIG*/null", settings.toPlatformConfigJson(platform))
-                            .replace("__NAMESPACE__", "SocialLite_")
-                    }
-                    else -> {
-                        // Other scripts use /*CONFIG*/{}
-                        platformJs.replace("/*CONFIG*/{}", settings.toPlatformConfigJson(platform))
-                    }
-                }
-                view.evaluateJavascript(injectedPlatform, null)
-            }
+            // 2. Platform-specific controls
+            injectPlatformScript(view)
         } catch (e: Exception) {
             Log.e(TAG, "Error injecting scripts", e)
         }
+    }
+
+    private fun injectPlatformScript(view: WebView?) {
+        if (view == null) return
+        val settings = getSettings()
+        val configJson = settings.toPlatformConfigJson(platform)
+
+        try {
+            val platformJs = readAsset(platform.jsScriptAsset)
+            if (platformJs.isNotEmpty() && platform.jsScriptAsset != "js/common_controls.js") {
+                val injected = when (platform) {
+                    Platform.YOUTUBE -> {
+                        platformJs.replace("__CONFIG__", configJson)
+                    }
+                    Platform.INSTAGRAM -> {
+                        platformJs
+                            .replace("/*CONFIG*/null", configJson)
+                            .replace("__NAMESPACE__", "SocialLite_")
+                    }
+                    Platform.FACEBOOK, Platform.REDDIT, Platform.SNAPCHAT -> {
+                        platformJs
+                            .replace("/*CONFIG*/null", configJson)
+                            .replace("__NAMESPACE__", "SocialLite_")
+                    }
+                    else -> {
+                        platformJs.replace("/*CONFIG*/{}", configJson)
+                    }
+                }
+                view.evaluateJavascript(injected, null)
+            }
+
+            // Extra Instagram UI controls (Reels tab hiding, Comments hiding, Create button hiding)
+            if (platform == Platform.INSTAGRAM) {
+                view.evaluateJavascript(buildInstagramUiControlsJs(settings), null)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error injecting platform script for ${platform.id}", e)
+        }
+    }
+
+    private fun buildInstagramUiControlsJs(settings: AppSettings): String {
+        val cssRules = StringBuilder()
+        // Always hide native "Open App" / "Use the app" banners on Instagram mobile web
+        cssRules.append("[class*=\"InstallApp\" i], a[href*=\"applink\"], div[role=\"dialog\"]:has(a[href*=\"instagram.com/download\"]) { display: none !important; } ")
+        if (settings.igBlockReels) {
+            cssRules.append("a[href^=\"/reels\"], a[href*=\"/reels/\"], svg[aria-label=\"Reels\"] { display: none !important; } ")
+            cssRules.append("a[href^=\"/reels\"]:has(svg) { pointer-events: none !important; } ")
+        }
+        if (settings.igHideComments) {
+            cssRules.append("textarea[aria-label*=\"comment\" i], form:has(textarea[aria-label*=\"comment\" i]), a[href*=\"/comments/\"] { display: none !important; } ")
+        }
+        if (settings.igBlockPosting) {
+            cssRules.append("a[href^=\"/create\"], [aria-label=\"New post\"], [aria-label=\"Create\"], svg[aria-label=\"New post\"] { display: none !important; pointer-events: none !important; } ")
+        }
+
+        val escapedCss = cssRules.toString().replace("'", "\\'")
+        val blockReelsFlag = settings.igBlockReels
+
+        return """
+            (function() {
+                if (!/instagram\.com$/i.test(location.hostname)) return;
+                var st = document.getElementById('__sl_ig_ui_css') || document.createElement('style');
+                st.id = '__sl_ig_ui_css';
+                st.textContent = '$escapedCss';
+                (document.head || document.documentElement).appendChild(st);
+                if ($blockReelsFlag && /^\/reels?(\/|$)/.test(location.pathname)) {
+                    location.replace('https://www.instagram.com/');
+                }
+            })();
+        """.trimIndent()
     }
 
     private fun readAsset(path: String): String {

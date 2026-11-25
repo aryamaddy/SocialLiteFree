@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import java.time.LocalDate
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "socialitefree_settings")
 
@@ -21,6 +22,18 @@ class PreferencesManager(private val context: Context) {
             }
         }
 
+        // Appearance & Auto Launch
+        val USE_CLASSIC_ICONS = booleanPreferencesKey("use_classic_icons")
+        val AUTO_APP_LAUNCH = booleanPreferencesKey("auto_app_launch")
+        val DEFAULT_PLATFORM = stringPreferencesKey("default_platform")
+
+        // Visibility toggles per platform
+        fun showPlatformKey(platformId: String) = booleanPreferencesKey("show_platform_$platformId")
+
+        // Usage tracking per platform (seconds)
+        fun usageSecondsKey(platformId: String) = intPreferencesKey("usage_sec_$platformId")
+        val USAGE_DATE = stringPreferencesKey("usage_date")
+
         // YouTube keys
         val YT_BLOCK_ADS = booleanPreferencesKey("yt_block_ads")
         val YT_HIDE_SHORTS = booleanPreferencesKey("yt_hide_shorts")
@@ -33,6 +46,7 @@ class PreferencesManager(private val context: Context) {
         // Instagram keys
         val IG_HIDE_ADS = booleanPreferencesKey("ig_hide_ads")
         val IG_HIDE_SUGGESTED = booleanPreferencesKey("ig_hide_suggested")
+        val IG_BLOCK_REELS = booleanPreferencesKey("ig_block_reels")
         val IG_HIDE_COMMENTS = booleanPreferencesKey("ig_hide_comments")
         val IG_BLOCK_POSTING = booleanPreferencesKey("ig_block_posting")
         val IG_REELS_BUDGET = intPreferencesKey("ig_reels_budget")
@@ -49,40 +63,77 @@ class PreferencesManager(private val context: Context) {
         val TW_HIDE_FOR_YOU = booleanPreferencesKey("tw_hide_for_you")
         val TW_HIDE_ADS = booleanPreferencesKey("tw_hide_ads")
 
-        // Facebook keys (no specific toggles requested, but adding basic ones)
-        val FB_HIDE_ADS = booleanPreferencesKey("fb_hide_ads")
+        // Facebook keys
+        val FB_BLOCK_REELS = booleanPreferencesKey("fb_block_reels")
+        val FB_HIDE_PEOPLE = booleanPreferencesKey("fb_hide_people")
+        val FB_HIDE_MARKETPLACE = booleanPreferencesKey("fb_hide_marketplace")
 
-        // General keys
+        // Reddit keys
+        val REDDIT_BLOCK_ADS = booleanPreferencesKey("reddit_block_ads")
+        val REDDIT_HIDE_SUGGESTED = booleanPreferencesKey("reddit_hide_suggested")
+        val REDDIT_BLOCK_POPULAR = booleanPreferencesKey("reddit_block_popular")
+
+        // General & Sleep Mode
         val GRAYSCALE_MODE = booleanPreferencesKey("grayscale_mode")
-        val DEFAULT_PLATFORM = stringPreferencesKey("default_platform")
+        val SLEEP_MODE_ENABLED = booleanPreferencesKey("sleep_mode_enabled")
+        val SLEEP_START_HOUR = intPreferencesKey("sleep_start_hour")
+        val SLEEP_START_MINUTE = intPreferencesKey("sleep_start_minute")
+        val SLEEP_END_HOUR = intPreferencesKey("sleep_end_hour")
+        val SLEEP_END_MINUTE = intPreferencesKey("sleep_end_minute")
     }
 
-    // Generic boolean getter
     fun getBoolean(key: Preferences.Key<Boolean>, default: Boolean = true): Flow<Boolean> =
         context.dataStore.data.map { prefs -> prefs[key] ?: default }
 
-    // Generic int getter
     fun getInt(key: Preferences.Key<Int>, default: Int = 0): Flow<Int> =
         context.dataStore.data.map { prefs -> prefs[key] ?: default }
 
-    // Generic string getter
     fun getString(key: Preferences.Key<String>, default: String = ""): Flow<String> =
         context.dataStore.data.map { prefs -> prefs[key] ?: default }
 
-    // Generic boolean setter
     suspend fun setBoolean(key: Preferences.Key<Boolean>, value: Boolean) {
         context.dataStore.edit { prefs -> prefs[key] = value }
     }
 
-    // Generic int setter
     suspend fun setInt(key: Preferences.Key<Int>, value: Int) {
         context.dataStore.edit { prefs -> prefs[key] = value }
     }
 
-    // Generic string setter
     suspend fun setString(key: Preferences.Key<String>, value: String) {
         context.dataStore.edit { prefs -> prefs[key] = value }
     }
+
+    fun isPlatformVisible(platform: Platform): Flow<Boolean> =
+        getBoolean(showPlatformKey(platform.id), platform.defaultVisible)
+
+    suspend fun addUsageSeconds(platformId: String, deltaSeconds: Int) {
+        val today = LocalDate.now().toString()
+        context.dataStore.edit { prefs ->
+            val savedDate = prefs[USAGE_DATE]
+            if (savedDate != today) {
+                Platform.entries.forEach { p -> prefs[usageSecondsKey(p.id)] = 0 }
+                prefs[USAGE_DATE] = today
+            }
+            val key = usageSecondsKey(platformId)
+            val current = prefs[key] ?: 0
+            prefs[key] = current + deltaSeconds
+        }
+    }
+
+    fun getAllUsageSeconds(): Flow<Map<String, Int>> =
+        context.dataStore.data.map { prefs ->
+            val today = LocalDate.now().toString()
+            if (prefs[USAGE_DATE] != today) {
+                emptyMap()
+            } else {
+                Platform.entries.associate { p -> p.id to (prefs[usageSecondsKey(p.id)] ?: 0) }
+            }
+        }
+
+    // Appearance & Launch flows
+    val useClassicIcons: Flow<Boolean> = getBoolean(USE_CLASSIC_ICONS, false)
+    val autoAppLaunch: Flow<Boolean> = getBoolean(AUTO_APP_LAUNCH, false)
+    val defaultPlatform: Flow<String> = getString(DEFAULT_PLATFORM, "youtube")
 
     // YouTube flows
     val ytBlockAds: Flow<Boolean> = getBoolean(YT_BLOCK_ADS, true)
@@ -91,11 +142,12 @@ class PreferencesManager(private val context: Context) {
     val ytHideRecommendations: Flow<Boolean> = getBoolean(YT_HIDE_RECOMMENDATIONS, false)
     val ytBackgroundPlay: Flow<Boolean> = getBoolean(YT_BACKGROUND_PLAY, true)
     val ytSearchOnly: Flow<Boolean> = getBoolean(YT_SEARCH_ONLY, false)
-    val ytBlockFeedAutoplay: Flow<Boolean> = getBoolean(YT_BLOCK_FEED_AUTOPLAY, true)
+    val ytBlockFeedAutoplay: Flow<Boolean> = getBoolean(YT_BLOCK_FEED_AUTOPLAY, false)
 
     // Instagram flows
     val igHideAds: Flow<Boolean> = getBoolean(IG_HIDE_ADS, true)
     val igHideSuggested: Flow<Boolean> = getBoolean(IG_HIDE_SUGGESTED, true)
+    val igBlockReels: Flow<Boolean> = getBoolean(IG_BLOCK_REELS, true)
     val igHideComments: Flow<Boolean> = getBoolean(IG_HIDE_COMMENTS, false)
     val igBlockPosting: Flow<Boolean> = getBoolean(IG_BLOCK_POSTING, false)
     val igReelsBudget: Flow<Int> = getInt(IG_REELS_BUDGET, 30)
@@ -113,12 +165,20 @@ class PreferencesManager(private val context: Context) {
     val twHideAds: Flow<Boolean> = getBoolean(TW_HIDE_ADS, true)
 
     // Facebook flows
-    val fbHideAds: Flow<Boolean> = getBoolean(FB_HIDE_ADS, true)
+    val fbBlockReels: Flow<Boolean> = getBoolean(FB_BLOCK_REELS, true)
+    val fbHidePeople: Flow<Boolean> = getBoolean(FB_HIDE_PEOPLE, true)
+    val fbHideMarketplace: Flow<Boolean> = getBoolean(FB_HIDE_MARKETPLACE, false)
 
-    // General flows
+    // Reddit flows
+    val redditBlockAds: Flow<Boolean> = getBoolean(REDDIT_BLOCK_ADS, true)
+    val redditHideSuggested: Flow<Boolean> = getBoolean(REDDIT_HIDE_SUGGESTED, true)
+    val redditBlockPopular: Flow<Boolean> = getBoolean(REDDIT_BLOCK_POPULAR, false)
+
+    // General & Sleep Mode flows
     val grayscaleMode: Flow<Boolean> = getBoolean(GRAYSCALE_MODE, false)
-    val defaultPlatform: Flow<String> = getString(DEFAULT_PLATFORM, "")
-
-    // Convenience: get all preferences as a snapshot
-    val allPreferences: Flow<Preferences> = context.dataStore.data
+    val sleepModeEnabled: Flow<Boolean> = getBoolean(SLEEP_MODE_ENABLED, false)
+    val sleepStartHour: Flow<Int> = getInt(SLEEP_START_HOUR, 22)
+    val sleepStartMinute: Flow<Int> = getInt(SLEEP_START_MINUTE, 0)
+    val sleepEndHour: Flow<Int> = getInt(SLEEP_END_HOUR, 7)
+    val sleepEndMinute: Flow<Int> = getInt(SLEEP_END_MINUTE, 0)
 }

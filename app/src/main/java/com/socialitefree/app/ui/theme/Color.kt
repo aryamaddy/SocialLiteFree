@@ -2,56 +2,41 @@ package com.socialitefree.app.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Primary
-val PrimaryBlue = Color(0xFF1A73E8)
-val PrimaryBlueLight = Color(0xFF4DA3FF)
-val PrimaryBlueDark = Color(0xFF0D47A1)
+// SocialLite Warm Minimalist Signature Palette
+val CreamBackground = Color(0xFFF4F0EA)
+val CreamSurface = Color(0xFFFAF7F2)
+val CreamCard = Color(0xFFFFFFFF)
+val CreamCardSubtle = Color(0xFFECE7DF)
+val CreamDivider = Color(0xFFE2DCD2)
 
-// Secondary
-val SecondaryTeal = Color(0xFF00897B)
-val SecondaryTealLight = Color(0xFF4DB6AC)
-val SecondaryTealDark = Color(0xFF00695C)
+val InkPrimary = Color(0xFF1C1C1E)
+val InkSecondary = Color(0xFF6E6E73)
+val InkTertiary = Color(0xFF9A9AA0)
 
-// Tertiary
-val TertiaryAmber = Color(0xFFFFA000)
-val TertiaryAmberLight = Color(0xFFFFCA28)
-val TertiaryAmberDark = Color(0xFFFF8F00)
+// Accent Colors
+val SocialPurple = Color(0xFF7C5CFA)
+val SocialPurpleSoft = Color(0xFFEDE8FF)
+val SocialCoral = Color(0xFFD9534F)
+val SocialGreen = Color(0xFF2E9E5B)
+val SocialAmber = Color(0xFFF5A623)
 
-// Surface
-val SurfaceLight = Color(0xFFFFFBFE)
-val SurfaceDark = Color(0xFF1C1B1F)
-val SurfaceVariantLight = Color(0xFFF3EDF7)
-val SurfaceVariantDark = Color(0xFF49454F)
-val SurfaceContainerLight = Color(0xFFF7F2FA)
-val SurfaceContainerDark = Color(0xFF211F26)
+// Sleep Mode Palette
+val SleepNightBg = Color(0xFF0E0F1A)
+val SleepNightCard = Color(0xFF1B1D2E)
+val SleepMoonAccent = Color(0xFFA799FF)
 
-// Background
-val BackgroundLight = Color(0xFFFFFBFE)
-val BackgroundDark = Color(0xFF1C1B1F)
+// Legacy / Dark Mode Support
+val DarkBackground = Color(0xFF121216)
+val DarkSurface = Color(0xFF1C1C22)
+val DarkCard = Color(0xFF26262E)
+val DarkInk = Color(0xFFF2F2F7)
 
-// On colors
-val OnPrimaryLight = Color(0xFFFFFFFF)
-val OnPrimaryDark = Color(0xFFFFFFFF)
-val OnSecondaryLight = Color(0xFFFFFFFF)
-val OnSecondaryDark = Color(0xFFFFFFFF)
-val OnSurfaceLight = Color(0xFF1C1B1F)
-val OnSurfaceDark = Color(0xFFE6E1E5)
-val OnBackgroundLight = Color(0xFF1C1B1F)
-val OnBackgroundDark = Color(0xFFE6E1E5)
-
-// Error
-val ErrorRed = Color(0xFFB3261E)
-val ErrorRedDark = Color(0xFFF2B8B5)
-
-// Outline
-val OutlineLight = Color(0xFF79747E)
-val OutlineDark = Color(0xFF938F99)
-
-// Platform brand colors
+// Platform Brand Colors
 val YouTubeRed = Color(0xFFFF0000)
 val InstagramPurple = Color(0xFFE1306C)
 val TikTokCyan = Color(0xFF00F2EA)
-val TwitterBlue = Color(0xFF1DA1F2)
+val TwitterBlue = Color(0xFF1C1C1E)
 val FacebookBlue = Color(0xFF1877F2)
 val SnapchatYellow = Color(0xFFFFFC00)
 val RedditOrange = Color(0xFFFF4500)
+val LinkedInBlue = Color(0xFF0A66C2)
