@@ -11,7 +11,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import androidx.navigation.NavType
@@ -24,20 +23,12 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
-import com.socialitefree.app.data.PinType
 import com.socialitefree.app.data.PreferencesManager
 import com.socialitefree.app.data.rememberAppSettings
-import com.socialitefree.app.ui.components.PinVerifyDialog
-import com.socialitefree.app.ui.screens.AppBlockerScreen
 import com.socialitefree.app.ui.screens.BrowserScreen
-import com.socialitefree.app.ui.screens.HomeScreen
-import com.socialitefree.app.ui.screens.PinLockScreen
-import com.socialitefree.app.ui.screens.SettingsScreen
-import com.socialitefree.app.ui.screens.WebsiteBlockerScreen
+import com.socialitefree.app.ui.screens.NoScrollRootScreen
 import com.socialitefree.app.ui.theme.SocialLiteFreeTheme
 import com.socialitefree.app.update.UpdateCheckWorker
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.runBlocking
 import java.util.concurrent.TimeUnit
 
 class MainActivity : ComponentActivity() {
@@ -57,49 +48,24 @@ class MainActivity : ComponentActivity() {
         requestNotificationPermissionIfNeeded()
         scheduleBackgroundUpdateChecks()
 
-        val autoLaunch = runBlocking { preferencesManager.autoAppLaunch.first() }
-        val favPlatform = runBlocking { preferencesManager.defaultPlatform.first() }
-        val initialRoute = if (autoLaunch && favPlatform.isNotBlank()) "browser/$favPlatform" else "home"
-
         setContent {
-            SocialLiteFreeTheme {
+            val settings = rememberAppSettings(preferencesManager)
+            SocialLiteFreeTheme(appTheme = settings.appTheme) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
                     val navController = rememberNavController()
-                    val settings = rememberAppSettings(preferencesManager)
-                    var pendingPinRoute by remember { mutableStateOf<String?>(null) }
-
-                    fun navigateProtected(route: String, requirePin: Boolean) {
-                        if (requirePin && settings.pinType != PinType.NONE) {
-                            pendingPinRoute = route
-                        } else {
-                            navController.navigate(route)
-                        }
-                    }
 
                     NavHost(
                         navController = navController,
-                        startDestination = initialRoute
+                        startDestination = "noscroll_root"
                     ) {
-                        composable("home") {
-                            HomeScreen(
+                        composable("noscroll_root") {
+                            NoScrollRootScreen(
                                 prefsManager = preferencesManager,
-                                onNavigateToPlatform = { platformId ->
+                                onNavigateToWebPlatform = { platformId ->
                                     navController.navigate("browser/$platformId")
-                                },
-                                onNavigateToSettings = {
-                                    navigateProtected("settings", settings.pinProtectSettings)
-                                },
-                                onNavigateToAppBlocker = {
-                                    navigateProtected("app_blocker", settings.pinProtectSettings)
-                                },
-                                onNavigateToWebsiteBlocker = {
-                                    navigateProtected("website_blocker", settings.pinProtectSettings)
-                                },
-                                onNavigateToPinLock = {
-                                    navigateProtected("pin_lock", settings.pinProtectSettings)
                                 }
                             )
                         }
@@ -115,62 +81,17 @@ class MainActivity : ComponentActivity() {
                                 platformId = platformId,
                                 prefsManager = preferencesManager,
                                 onNavigateHome = {
-                                    navController.navigate("home") {
+                                    navController.navigate("noscroll_root") {
                                         popUpTo(0) { inclusive = true }
                                     }
                                 },
                                 onSwitchPlatform = { newId ->
                                     navController.navigate("browser/$newId") {
-                                        popUpTo("home") { inclusive = false }
+                                        popUpTo("noscroll_root") { inclusive = false }
                                     }
                                 }
                             )
                         }
-
-                        composable("settings") {
-                            SettingsScreen(
-                                prefsManager = preferencesManager,
-                                onNavigateToAppBlocker = { navController.navigate("app_blocker") },
-                                onNavigateToWebsiteBlocker = { navController.navigate("website_blocker") },
-                                onNavigateToPinLock = { navController.navigate("pin_lock") },
-                                onBack = { navController.popBackStack() }
-                            )
-                        }
-
-                        composable("app_blocker") {
-                            AppBlockerScreen(
-                                prefsManager = preferencesManager,
-                                onBack = { navController.popBackStack() }
-                            )
-                        }
-
-                        composable("website_blocker") {
-                            WebsiteBlockerScreen(
-                                prefsManager = preferencesManager,
-                                onBack = { navController.popBackStack() }
-                            )
-                        }
-
-                        composable("pin_lock") {
-                            PinLockScreen(
-                                prefsManager = preferencesManager,
-                                onBack = { navController.popBackStack() }
-                            )
-                        }
-                    }
-
-                    pendingPinRoute?.let { route ->
-                        PinVerifyDialog(
-                            title = "Unlock Protected Area",
-                            pinType = settings.pinType,
-                            customPin = settings.customPin,
-                            onDismiss = { pendingPinRoute = null },
-                            onVerified = {
-                                val target = route
-                                pendingPinRoute = null
-                                navController.navigate(target)
-                            }
-                        )
                     }
                 }
             }

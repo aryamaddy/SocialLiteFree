@@ -23,6 +23,7 @@ class PreferencesManager(private val context: Context) {
         }
 
         // Appearance & Auto Launch
+        val APP_THEME = stringPreferencesKey("app_theme")
         val USE_CLASSIC_ICONS = booleanPreferencesKey("use_classic_icons")
         val AUTO_APP_LAUNCH = booleanPreferencesKey("auto_app_launch")
         val DEFAULT_PLATFORM = stringPreferencesKey("default_platform")
@@ -339,6 +340,7 @@ class PreferencesManager(private val context: Context) {
         }
 
     // Appearance & Launch flows
+    val appTheme: Flow<String> = getString(APP_THEME, "DARK")
     val useClassicIcons: Flow<Boolean> = getBoolean(USE_CLASSIC_ICONS, false)
     val autoAppLaunch: Flow<Boolean> = getBoolean(AUTO_APP_LAUNCH, false)
     val defaultPlatform: Flow<String> = getString(DEFAULT_PLATFORM, "instagram")

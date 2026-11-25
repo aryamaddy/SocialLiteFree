@@ -1132,7 +1132,7 @@ class NativeReelsBlockerService : AccessibilityService() {
         if (now - lastToastAtMs < TOAST_COOLDOWN_MS) return
         lastToastAtMs = now
         mainHandler.post {
-            Toast.makeText(applicationContext, msg, Toast.LENGTH_SHORT).show()
+            Toast.makeText(applicationContext, msg.replace("SocialLite", "NoScroll"), Toast.LENGTH_SHORT).show()
         }
     }
 

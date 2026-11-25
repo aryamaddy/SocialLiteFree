@@ -1,6 +1,7 @@
 package com.socialitefree.app.ui.theme
 
 import android.app.Activity
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
@@ -13,29 +14,33 @@ import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
 private val DarkColorScheme = darkColorScheme(
-    primary = SocialPurple,
+    primary = NoScrollRed,
     onPrimary = Color.White,
-    primaryContainer = Color(0xFF2D2452),
-    onPrimaryContainer = SocialPurpleSoft,
-    secondary = SocialGreen,
+    primaryContainer = Color(0xFF311920),
+    onPrimaryContainer = Color(0xFFFFB4B8),
+    secondary = NoScrollBlue,
     onSecondary = Color.White,
-    background = DarkBackground,
-    onBackground = DarkInk,
-    surface = DarkSurface,
-    onSurface = DarkInk,
-    surfaceVariant = DarkCard,
-    onSurfaceVariant = Color(0xFFAEAEB2),
-    outline = Color(0xFF3A3A44),
-    error = SocialCoral
+    secondaryContainer = Color(0xFF1B2B45),
+    onSecondaryContainer = Color(0xFFBFDBFE),
+    background = NoScrollBg,
+    onBackground = NoScrollTextPrimary,
+    surface = NoScrollSurface,
+    onSurface = NoScrollTextPrimary,
+    surfaceVariant = NoScrollCard,
+    onSurfaceVariant = NoScrollTextSecondary,
+    outline = NoScrollBorder,
+    error = NoScrollRed
 )
 
 private val LightColorScheme = lightColorScheme(
-    primary = SocialPurple,
+    primary = NoScrollRed,
     onPrimary = Color.White,
-    primaryContainer = SocialPurpleSoft,
-    onPrimaryContainer = Color(0xFF321D8A),
-    secondary = SocialGreen,
+    primaryContainer = Color(0xFFFFE4E6),
+    onPrimaryContainer = Color(0xFF881337),
+    secondary = NoScrollBlue,
     onSecondary = Color.White,
+    secondaryContainer = Color(0xFFDBEAFE),
+    onSecondaryContainer = Color(0xFF1E3A8A),
     background = CreamBackground,
     onBackground = InkPrimary,
     surface = CreamSurface,
@@ -48,9 +53,15 @@ private val LightColorScheme = lightColorScheme(
 
 @Composable
 fun SocialLiteFreeTheme(
-    darkTheme: Boolean = false,
+    appTheme: String = "DARK",
     content: @Composable () -> Unit
 ) {
+    val darkTheme = when (appTheme.uppercase()) {
+        "LIGHT" -> false
+        "SYSTEM_DEFAULT" -> isSystemInDarkTheme()
+        else -> true
+    }
+
     val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
 
     val view = LocalView.current

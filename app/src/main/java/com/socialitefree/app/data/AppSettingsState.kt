@@ -7,6 +7,7 @@ import androidx.compose.runtime.remember
 
 @Composable
 fun rememberAppSettings(prefsManager: PreferencesManager): AppSettings {
+    val appTheme by prefsManager.appTheme.collectAsState(initial = "DARK")
     val useClassicIcons by prefsManager.useClassicIcons.collectAsState(initial = false)
     val autoAppLaunch by prefsManager.autoAppLaunch.collectAsState(initial = false)
     val favoritePlatformId by prefsManager.defaultPlatform.collectAsState(initial = "instagram")
@@ -100,6 +101,7 @@ fun rememberAppSettings(prefsManager: PreferencesManager): AppSettings {
     val blockedSites = remember(blockedSitesJson) { SiteListSerializer.decodeSites(blockedSitesJson) }
 
     return AppSettings(
+        appTheme = appTheme,
         useClassicIcons = useClassicIcons,
         autoAppLaunch = autoAppLaunch,
         favoritePlatformId = favoritePlatformId,

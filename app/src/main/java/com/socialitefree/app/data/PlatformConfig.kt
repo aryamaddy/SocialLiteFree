@@ -151,6 +151,7 @@ enum class Platform(
 
 data class AppSettings(
     // Appearance & Launch
+    val appTheme: String = "DARK",
     val useClassicIcons: Boolean = false,
     val autoAppLaunch: Boolean = false,
     val favoritePlatformId: String = "instagram",
