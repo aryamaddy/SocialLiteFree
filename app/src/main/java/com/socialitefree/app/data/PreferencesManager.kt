@@ -39,6 +39,7 @@ class PreferencesManager(private val context: Context) {
         val NATIVE_BLOCK_FB_REELS = booleanPreferencesKey("native_block_fb_reels")
         val NATIVE_BLOCK_SNAP_SPOTLIGHT = booleanPreferencesKey("native_block_snap_spotlight")
         val NATIVE_BLOCKED_COUNT = intPreferencesKey("native_blocked_count")
+        val LAST_NOTIFIED_UPDATE_CODE = intPreferencesKey("last_notified_update_code")
 
         // Usage tracking per platform (seconds)
         fun usageSecondsKey(platformId: String) = intPreferencesKey("usage_sec_$platformId")

@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import com.socialitefree.app.BuildConfig
 import com.socialitefree.app.R
 import com.socialitefree.app.data.AppSettings
 import com.socialitefree.app.data.NativeAppHelper
@@ -42,6 +43,8 @@ import com.socialitefree.app.data.Platform
 import com.socialitefree.app.data.PreferencesManager
 import com.socialitefree.app.data.rememberAppSettings
 import com.socialitefree.app.ui.theme.*
+import com.socialitefree.app.update.AppUpdateInfo
+import com.socialitefree.app.update.UpdateChecker
 import kotlinx.coroutines.launch
 import java.time.LocalTime
 
@@ -88,10 +91,16 @@ fun HomeScreen(
     val pagerState = rememberPagerState(initialPage = 1, pageCount = { 3 })
     var showGuideSheet by remember { mutableStateOf(false) }
     var pendingNativePlatform by remember { mutableStateOf<Platform?>(null) }
+    var availableUpdate by remember { mutableStateOf<AppUpdateInfo?>(null) }
+    var showUpdateDialog by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        availableUpdate = UpdateChecker.checkForUpdate()
+    }
 
     fun handlePlatformClick(platform: Platform) {
-        val wantsNative = preferNativeMap[platform.id] == true
-        val installedPkg = NativeAppHelper.findInstalledPackage(context, platform)
+        val wantsNative = BuildConfig.SUPPORTS_NATIVE_BLOCKER && (preferNativeMap[platform.id] == true)
+        val installedPkg = if (wantsNative) NativeAppHelper.findInstalledPackage(context, platform) else null
         if (wantsNative && installedPkg != null) {
             if (!NativeAppHelper.isAccessibilityEnabled(context)) {
                 a11yEnabled = false
@@ -123,7 +132,9 @@ fun HomeScreen(
                     visiblePlatforms = visiblePlatforms,
                     preferNativeMap = preferNativeMap,
                     a11yEnabled = a11yEnabled,
+                    availableUpdate = availableUpdate,
                     onPlatformClick = ::handlePlatformClick,
+                    onOpenUpdateDialog = { showUpdateDialog = true },
                     onShieldClick = {
                         a11yEnabled = NativeAppHelper.isAccessibilityEnabled(context)
                         overlayEnabled = NativeAppHelper.canDrawOverlays(context)
@@ -208,6 +219,37 @@ fun HomeScreen(
             )
         }
     }
+
+    if (showUpdateDialog && availableUpdate != null) {
+        val upd = availableUpdate!!
+        AlertDialog(
+            onDismissRequest = { showUpdateDialog = false },
+            title = { Text("Update Available: ${upd.versionName}", fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    text = "A new version of SocialLite is ready with bug fixes and new features!\n\n${upd.releaseNotes.take(260)}",
+                    fontSize = 13.sp,
+                    color = InkSecondary
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showUpdateDialog = false
+                        UpdateChecker.openUpdateLink(context, upd.apkDownloadUrl)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = SocialPurple)
+                ) {
+                    Text("Update Now", color = Color.White, fontWeight = FontWeight.SemiBold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showUpdateDialog = false }) {
+                    Text("Later")
+                }
+            }
+        )
+    }
 }
 
 @Composable
@@ -216,7 +258,9 @@ private fun LauncherHomePage(
     visiblePlatforms: List<Platform>,
     preferNativeMap: Map<String, Boolean>,
     a11yEnabled: Boolean,
+    availableUpdate: AppUpdateInfo?,
     onPlatformClick: (Platform) -> Unit,
+    onOpenUpdateDialog: () -> Unit,
     onShieldClick: () -> Unit,
     onNavigateToSettings: () -> Unit,
     onOpenGuide: () -> Unit,
@@ -270,30 +314,32 @@ private fun LauncherHomePage(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Surface(
-                        shape = RoundedCornerShape(50),
-                        color = if (a11yEnabled) SocialGreen.copy(alpha = 0.14f) else SocialPurpleSoft,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(50))
-                            .clickable(onClick = onShieldClick)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                    if (BuildConfig.SUPPORTS_NATIVE_BLOCKER) {
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = if (a11yEnabled) SocialGreen.copy(alpha = 0.14f) else SocialPurpleSoft,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(50))
+                                .clickable(onClick = onShieldClick)
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(7.dp)
-                                    .clip(CircleShape)
-                                    .background(if (a11yEnabled) SocialGreen else SocialPurple)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = if (a11yEnabled) "Shield ON" else "Enable Shield",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (a11yEnabled) SocialGreen else SocialPurple
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(7.dp)
+                                        .clip(CircleShape)
+                                        .background(if (a11yEnabled) SocialGreen else SocialPurple)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = if (a11yEnabled) "Shield ON" else "Enable Shield",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (a11yEnabled) SocialGreen else SocialPurple
+                                )
+                            }
                         }
                     }
 
@@ -314,7 +360,45 @@ private fun LauncherHomePage(
                 }
             }
 
-            Spacer(modifier = Modifier.height(22.dp))
+            if (availableUpdate != null) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = SocialPurpleSoft,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .clickable(onClick = onOpenUpdateDialog)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.SystemUpdate,
+                            contentDescription = null,
+                            tint = SocialPurple,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "New update ${availableUpdate.versionName} available · Tap to update",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = SocialPurple,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Icon(
+                            imageVector = Icons.Rounded.ChevronRight,
+                            contentDescription = null,
+                            tint = SocialPurple,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(18.dp))
 
             // 2-Column 3D Glossy Painted Squircle Icon Grid
             LazyVerticalGrid(
@@ -325,7 +409,8 @@ private fun LauncherHomePage(
                 modifier = Modifier.weight(1f)
             ) {
                 items(visiblePlatforms, key = { it.id }) { platform ->
-                    val usesNative = preferNativeMap[platform.id] == true &&
+                    val usesNative = BuildConfig.SUPPORTS_NATIVE_BLOCKER &&
+                        preferNativeMap[platform.id] == true &&
                         NativeAppHelper.findInstalledPackage(context, platform) != null
                     PlatformSquircleTile(
                         platform = platform,

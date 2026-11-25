@@ -1,6 +1,7 @@
 package com.socialitefree.app.data
 
 import androidx.annotation.DrawableRes
+import com.socialitefree.app.BuildConfig
 import com.socialitefree.app.R
 import org.json.JSONArray
 import org.json.JSONObject
@@ -31,7 +32,7 @@ enum class Platform(
         gearIconRes = R.drawable.gear_instagram,
         settingsBannerRes = R.drawable.settings_banner_instagram,
         nativePackages = listOf("com.instagram.android"),
-        defaultPreferNative = true,
+        defaultPreferNative = BuildConfig.SUPPORTS_NATIVE_BLOCKER,
         isBeta = false,
         defaultVisible = true
     ),

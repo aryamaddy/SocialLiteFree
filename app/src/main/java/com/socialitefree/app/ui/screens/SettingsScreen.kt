@@ -29,12 +29,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import com.socialitefree.app.BuildConfig
 import com.socialitefree.app.R
 import com.socialitefree.app.data.NativeAppHelper
 import com.socialitefree.app.data.Platform
 import com.socialitefree.app.data.PreferencesManager
 import com.socialitefree.app.data.rememberAppSettings
 import com.socialitefree.app.ui.theme.*
+import com.socialitefree.app.update.AppUpdateInfo
+import com.socialitefree.app.update.UpdateChecker
 import kotlinx.coroutines.launch
 
 @Composable
@@ -64,6 +67,8 @@ fun SettingsScreen(
     var showClearDataDialog by remember { mutableStateOf(false) }
     var showFavoritePicker by remember { mutableStateOf(false) }
     var expandedPlatformId by remember { mutableStateOf<String?>("instagram") }
+    var checkingUpdate by remember { mutableStateOf(false) }
+    var availableUpdate by remember { mutableStateOf<AppUpdateInfo?>(null) }
 
     val igPreferNative by prefsManager.preferNativeApp(Platform.INSTAGRAM).collectAsState(initial = true)
     val ytPreferNative by prefsManager.preferNativeApp(Platform.YOUTUBE).collectAsState(initial = false)
@@ -174,9 +179,10 @@ fun SettingsScreen(
                     }
                 }
 
-                // 2. Native App Blocker (Original Installed Apps)
-                item {
-                    SettingsSectionHeader(Icons.Rounded.VerifiedUser, "ORIGINAL APP REELS BLOCKER")
+                // 2. Native App Blocker (Original Installed Apps) - Only in NativeBlocker edition
+                if (BuildConfig.SUPPORTS_NATIVE_BLOCKER) {
+                    item {
+                        SettingsSectionHeader(Icons.Rounded.VerifiedUser, "ORIGINAL APP REELS BLOCKER")
                     Spacer(modifier = Modifier.height(6.dp))
                     SettingsCard {
                         Column {
@@ -297,6 +303,7 @@ fun SettingsScreen(
                                 coroutineScope.launch { prefsManager.setBoolean(PreferencesManager.NATIVE_BLOCK_YT_SHORTS, it) }
                             }
                         }
+                    }
                     }
                 }
 
@@ -620,19 +627,95 @@ fun SettingsScreen(
                             HairlineDivider()
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable(enabled = !checkingUpdate) {
+                                        checkingUpdate = true
+                                        coroutineScope.launch {
+                                            val info = UpdateChecker.checkForUpdate()
+                                            checkingUpdate = false
+                                            if (info != null) {
+                                                availableUpdate = info
+                                            } else {
+                                                Toast.makeText(
+                                                    context,
+                                                    "You are on the latest version (${BuildConfig.VERSION_NAME})",
+                                                    Toast.LENGTH_SHORT
+                                                ).show()
+                                            }
+                                        }
+                                    }
+                                    .padding(horizontal = 16.dp, vertical = 14.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.SystemUpdate,
+                                    contentDescription = null,
+                                    tint = SocialPurple,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text(
+                                    text = if (checkingUpdate) "Checking for updates..." else "Check for Updates",
+                                    fontSize = 15.sp,
+                                    color = InkPrimary,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Icon(
+                                    imageVector = Icons.Rounded.ChevronRight,
+                                    contentDescription = null,
+                                    tint = InkTertiary
+                                )
+                            }
+                            HairlineDivider()
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(horizontal = 16.dp, vertical = 14.dp)
                             ) {
                                 Text("Version", fontSize = 15.sp, color = InkPrimary)
-                                Text("1.3.1 (Free + Native Blocker)", fontSize = 15.sp, color = InkSecondary)
+                                Text(
+                                    "${BuildConfig.VERSION_NAME} (Build ${BuildConfig.VERSION_CODE} · ${BuildConfig.EDITION_NAME})",
+                                    fontSize = 13.sp,
+                                    color = InkSecondary
+                                )
                             }
                         }
                     }
                 }
             }
         }
+    }
+
+    availableUpdate?.let { upd ->
+        AlertDialog(
+            onDismissRequest = { availableUpdate = null },
+            title = { Text("Update Available: ${upd.versionName}", fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    text = "A new update is ready with bug fixes and new features.\n\n${upd.releaseNotes.take(260)}",
+                    fontSize = 13.sp,
+                    color = InkSecondary
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        availableUpdate = null
+                        UpdateChecker.openUpdateLink(context, upd.apkDownloadUrl)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = SocialPurple)
+                ) {
+                    Text("Update Now", color = Color.White)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { availableUpdate = null }) {
+                    Text("Later")
+                }
+            }
+        )
     }
 
     if (showClearDataDialog) {

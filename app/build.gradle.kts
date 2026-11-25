@@ -11,8 +11,8 @@ android {
         applicationId = "com.socialitefree.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 10
+        versionName = "1.4.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -20,9 +20,25 @@ android {
         }
     }
 
+    flavorDimensions += "edition"
+    productFlavors {
+        create("nativeBlocker") {
+            dimension = "edition"
+            buildConfigField("boolean", "SUPPORTS_NATIVE_BLOCKER", "true")
+            buildConfigField("String", "EDITION_NAME", "\"nativeBlocker\"")
+        }
+        create("websiteClean") {
+            dimension = "edition"
+            buildConfigField("boolean", "SUPPORTS_NATIVE_BLOCKER", "false")
+            buildConfigField("String", "EDITION_NAME", "\"websiteClean\"")
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            isDebuggable = false
+            signingConfig = signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -41,6 +57,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     composeOptions {
@@ -87,6 +104,9 @@ dependencies {
 
     // DataStore Preferences
     implementation("androidx.datastore:datastore-preferences:1.0.0")
+
+    // WorkManager (for periodic background update check notifications)
+    implementation("androidx.work:work-runtime-ktx:2.9.0")
 
     // Core KTX
     implementation("androidx.core:core-ktx:1.12.0")

@@ -7,9 +7,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
-    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
-    <!-- Required on Android 11+ to check & launch installed native apps -->
+    <!-- Check installed social apps -->
     <queries>
         <package android:name="com.instagram.android" />
         <package android:name="com.google.android.youtube" />
@@ -49,19 +49,6 @@
             android:name=".service.BackgroundPlayService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
-
-        <service
-            android:name=".service.NativeReelsBlockerService"
-            android:exported="true"
-            android:label="SocialLite Content Blocker"
-            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
-            <intent-filter>
-                <action android:name="android.accessibilityservice.AccessibilityService" />
-            </intent-filter>
-            <meta-data
-                android:name="android.accessibilityservice"
-                android:resource="@xml/native_reels_blocker_config" />
-        </service>
 
     </application>
 

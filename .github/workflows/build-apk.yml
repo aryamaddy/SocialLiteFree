@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   build:
-    name: Build & Release Debug APK
+    name: Build & Release APKs
     runs-on: ubuntu-latest
 
     steps:
@@ -29,19 +29,22 @@ jobs:
       - name: Ensure Gradle Wrapper
         run: |
           if [ ! -f gradlew ]; then
-            echo "Generating Gradle wrapper..."
             gradle wrapper --gradle-version 8.5
           fi
           chmod +x gradlew
 
-      - name: Build Debug APK
-        run: ./gradlew assembleDebug --stacktrace
+      - name: Build WebsiteClean & OriginalAppBlocker Release APKs
+        run: |
+          ./gradlew assembleWebsiteCleanRelease assembleNativeBlockerRelease --stacktrace
+          mkdir -p dist
+          cp app/build/outputs/apk/websiteClean/release/app-websiteClean-release.apk dist/SocialLite-WebsiteClean.apk
+          cp app/build/outputs/apk/nativeBlocker/release/app-nativeBlocker-release.apk dist/SocialLite-OriginalAppBlocker.apk
 
-      - name: Upload APK Artifact
+      - name: Upload APK Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: SocialLiteFree-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: SocialLiteFree-apks
+          path: dist/*.apk
           retention-days: 14
 
       - name: Create GitHub Release
@@ -49,16 +52,18 @@ jobs:
         if: startsWith(github.ref, 'refs/heads/')
         with:
           tag_name: v1.0.0-${{ github.run_number }}
-          name: SocialLiteFree v1.0.0 (Build ${{ github.run_number }})
+          name: SocialLiteFree v1.4.0 (Build ${{ github.run_number }})
           body: |
-            ### 🚀 SocialLiteFree Debug APK Build
-            
-            - **No Ads**: YouTube & Instagram sponsored posts blocked
-            - **No Shorts / Reels**: Addictive feeds removed
-            - **Background Play**: Audio playback continues with screen off
-            - **100% Free**: No paywalls, no subscriptions
-            
-            Download the `app-debug.apk` below and install it directly on your Android phone!
-          files: app/build/outputs/apk/debug/app-debug.apk
+            ### 🚀 SocialLiteFree v1.4.0 (Build ${{ github.run_number }})
+
+            **Choose the right APK for your needs:**
+            1. **`SocialLite-WebsiteClean.apk`** — **Direct Website / Chrome Install Edition** (Zero Accessibility/Overlay permissions, installs cleanly on all phones without Play Protect fraud block; includes full ad-free YouTube, Background Play, Instagram feed filter, Sleep Mode & Screen Time).
+            2. **`SocialLite-OriginalAppBlocker.apk`** — **Full Native Reels Blocker Edition** (Adds Android Accessibility Service to lock the Reels tab & exit Reels inside the official installed Instagram app; install via USB `adb install` or Google Play).
+
+            **New in this release:**
+            - Built-in **Automatic Update Checker & Background Notification** when newer builds ship!
+          files: |
+            dist/SocialLite-WebsiteClean.apk
+            dist/SocialLite-OriginalAppBlocker.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
