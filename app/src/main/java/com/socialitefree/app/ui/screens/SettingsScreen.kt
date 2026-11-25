@@ -31,7 +31,9 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.socialitefree.app.BuildConfig
 import com.socialitefree.app.R
+import com.socialitefree.app.data.BlockActionMode
 import com.socialitefree.app.data.NativeAppHelper
+import com.socialitefree.app.data.PinType
 import com.socialitefree.app.data.Platform
 import com.socialitefree.app.data.PreferencesManager
 import com.socialitefree.app.data.rememberAppSettings
@@ -43,6 +45,9 @@ import kotlinx.coroutines.launch
 @Composable
 fun SettingsScreen(
     prefsManager: PreferencesManager,
+    onNavigateToAppBlocker: () -> Unit = {},
+    onNavigateToWebsiteBlocker: () -> Unit = {},
+    onNavigateToPinLock: () -> Unit = {},
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
@@ -170,12 +175,91 @@ fun SettingsScreen(
                                 color = SocialPurpleSoft
                             ) {
                                 Text(
-                                    text = "ACTIVE",
+                                    text = "100% FREE",
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.ExtraBold,
                                     color = SocialPurple,
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                                 )
+                            }
+                        }
+                    }
+                }
+
+                // 1B. Focus & Protection Tools (100% Free Unlimited)
+                item {
+                    SettingsSectionHeader(Icons.Rounded.Security, "FOCUS & PROTECTION TOOLS")
+                    Spacer(modifier = Modifier.height(6.dp))
+                    SettingsCard {
+                        Column {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onNavigateToAppBlocker() }
+                                    .padding(horizontal = 16.dp, vertical = 13.dp)
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("App Blocker & Daily Limits", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = InkPrimary)
+                                    Text("${settings.blockedApps.count { it.enabled }} apps restricted · 100% free unlimited", fontSize = 12.sp, color = InkSecondary)
+                                }
+                                Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = InkSecondary)
+                            }
+                            HairlineDivider()
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onNavigateToWebsiteBlocker() }
+                                    .padding(horizontal = 16.dp, vertical = 13.dp)
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("Website & Keyword Blocker", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = InkPrimary)
+                                    Text("${settings.blockedSites.count { it.enabled }} rules active · Unlimited domains/keywords", fontSize = 12.sp, color = InkSecondary)
+                                }
+                                Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = InkSecondary)
+                            }
+                            HairlineDivider()
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onNavigateToPinLock() }
+                                    .padding(horizontal = 16.dp, vertical = 13.dp)
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("PIN Lock & Uninstall Guard", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = InkPrimary)
+                                    Text(
+                                        text = if (settings.pinType == PinType.NONE) "Off · Custom, Time, Date or Device Lock"
+                                        else "Active: ${settings.pinType.label}",
+                                        fontSize = 12.sp,
+                                        color = if (settings.pinType == PinType.NONE) InkSecondary else SocialGreen
+                                    )
+                                }
+                                Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = InkSecondary)
+                            }
+                            HairlineDivider()
+                            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                                Text("Mindful Wait Before Pausing", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = InkPrimary)
+                                Spacer(Modifier.height(6.dp))
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                    listOf(0 to "Off", 5 to "5s", 10 to "10s", 20 to "20s").forEach { (sec, label) ->
+                                        val sel = settings.pauseWaitSeconds == sec
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(if (sel) SocialPurple else CreamCardSubtle)
+                                                .clickable {
+                                                    coroutineScope.launch { prefsManager.setInt(PreferencesManager.PAUSE_WAIT_SECONDS, sec) }
+                                                }
+                                                .padding(vertical = 6.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = if (sel) Color.White else InkPrimary)
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -215,37 +299,6 @@ fun SettingsScreen(
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.ExtraBold,
                                     color = if (a11yEnabled) SocialGreen else SocialPurple
-                                )
-                            }
-                            HairlineDivider()
-
-                            // Overlay Permission Row
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { NativeAppHelper.openOverlaySettings(context) }
-                                    .padding(horizontal = 16.dp, vertical = 13.dp)
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = "Lock Tab Overlay Permission",
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = InkPrimary
-                                    )
-                                    Text(
-                                        text = if (overlayEnabled) "Allowed — covers Reels tab inside Instagram"
-                                        else "Tap to allow drawing lock over Reels tab",
-                                        fontSize = 12.sp,
-                                        color = InkSecondary
-                                    )
-                                }
-                                Text(
-                                    text = if (overlayEnabled) "ALLOWED" else "ALLOW",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = if (overlayEnabled) SocialGreen else SocialAmber
                                 )
                             }
                             HairlineDivider()
@@ -342,6 +395,107 @@ fun SettingsScreen(
                                 checked = settings.nativeBlockYtShorts
                             ) {
                                 coroutineScope.launch { prefsManager.setBoolean(PreferencesManager.NATIVE_BLOCK_YT_SHORTS, it) }
+                            }
+                            HairlineDivider()
+                            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                                Text("Blocking Action Mode", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = InkPrimary)
+                                Text(settings.blockActionMode.description, fontSize = 11.sp, color = InkSecondary)
+                                Spacer(Modifier.height(6.dp))
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                                    BlockActionMode.entries.forEach { mode ->
+                                        val sel = settings.blockActionMode == mode
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(if (sel) SocialPurple else CreamCardSubtle)
+                                                .clickable {
+                                                    coroutineScope.launch { prefsManager.setString(PreferencesManager.BLOCK_ACTION_MODE, mode.id) }
+                                                }
+                                                .padding(vertical = 7.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(mode.label, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = if (sel) Color.White else InkPrimary)
+                                        }
+                                    }
+                                }
+                            }
+                            HairlineDivider()
+                            SettingsSwitchRow(
+                                title = "Floating Scroll Watchtime Overlay",
+                                subtitle = "Shows active timer pill while scrolling short videos",
+                                checked = settings.reelCounterEnabled
+                            ) {
+                                coroutineScope.launch { prefsManager.setBoolean(PreferencesManager.REEL_COUNTER_ENABLED, it) }
+                            }
+                            HairlineDivider()
+                            SettingsSwitchRow(
+                                title = "Detailed Counter & Scroll Haptics",
+                                subtitle = "Displays session count & vibrates gently on scroll/block",
+                                checked = settings.reelCounterHaptics
+                            ) {
+                                coroutineScope.launch {
+                                    prefsManager.setBoolean(PreferencesManager.REEL_COUNTER_HAPTICS, it)
+                                    prefsManager.setBoolean(PreferencesManager.REEL_COUNTER_DETAILED, it)
+                                }
+                            }
+                            HairlineDivider()
+                            SettingsSwitchRow(
+                                title = "Block Browser Shorts & Reels",
+                                subtitle = "Stops YT Shorts / IG Reels in Chrome, Brave, Firefox, Edge",
+                                checked = settings.nativeBlockBrowserShorts
+                            ) {
+                                coroutineScope.launch { prefsManager.setBoolean(PreferencesManager.NATIVE_BLOCK_BROWSER_SHORTS, it) }
+                            }
+                            HairlineDivider()
+                            SettingsSwitchRow(
+                                title = "Block Facebook & TikTok Native Reels",
+                                subtitle = "Blocks Facebook Reels/Watch and TikTok short videos",
+                                checked = settings.nativeBlockFbReels && settings.nativeBlockTiktok
+                            ) {
+                                coroutineScope.launch {
+                                    prefsManager.setBoolean(PreferencesManager.NATIVE_BLOCK_FB_REELS, it)
+                                    prefsManager.setBoolean(PreferencesManager.NATIVE_BLOCK_TIKTOK, it)
+                                }
+                            }
+                            HairlineDivider()
+                            SettingsSwitchRow(
+                                title = "Block Snapchat Spotlights & Discover",
+                                subtitle = "Exits Spotlight feeds & optional Discover stories",
+                                checked = settings.nativeBlockSnapSpotlight
+                            ) {
+                                coroutineScope.launch { prefsManager.setBoolean(PreferencesManager.NATIVE_BLOCK_SNAP_SPOTLIGHT, it) }
+                            }
+                            HairlineDivider()
+                            SettingsSwitchRow(
+                                title = "Block Stories (Instagram & Snapchat)",
+                                subtitle = "Exit story viewers automatically",
+                                checked = settings.nativeBlockIgStories || settings.nativeBlockSnapStories
+                            ) {
+                                coroutineScope.launch {
+                                    prefsManager.setBoolean(PreferencesManager.NATIVE_BLOCK_IG_STORIES, it)
+                                    prefsManager.setBoolean(PreferencesManager.NATIVE_BLOCK_SNAP_STORIES, it)
+                                }
+                            }
+                            HairlineDivider()
+                            SettingsSwitchRow(
+                                title = "Block X, Reddit & LinkedIn Videos",
+                                subtitle = "Blocks short-form video players across X, Reddit & LinkedIn",
+                                checked = settings.nativeBlockTwitterVideo && settings.nativeBlockRedditVideo && settings.nativeBlockLinkedinVideo
+                            ) {
+                                coroutineScope.launch {
+                                    prefsManager.setBoolean(PreferencesManager.NATIVE_BLOCK_TWITTER_VIDEO, it)
+                                    prefsManager.setBoolean(PreferencesManager.NATIVE_BLOCK_REDDIT_VIDEO, it)
+                                    prefsManager.setBoolean(PreferencesManager.NATIVE_BLOCK_LINKEDIN_VIDEO, it)
+                                }
+                            }
+                            HairlineDivider()
+                            SettingsSwitchRow(
+                                title = "Block WhatsApp Status",
+                                subtitle = "Prevents opening WhatsApp / Business Status updates",
+                                checked = settings.nativeBlockWhatsAppStatus
+                            ) {
+                                coroutineScope.launch { prefsManager.setBoolean(PreferencesManager.NATIVE_BLOCK_WHATSAPP_STATUS, it) }
                             }
                         }
                     }

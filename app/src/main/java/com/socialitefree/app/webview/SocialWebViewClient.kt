@@ -35,8 +35,25 @@ class SocialWebViewClient(
             return true
         }
 
-        // Redirect blocked Reels/Shorts URLs when enabled
+        // Check user's Unlimited Website & Keyword Blocker inside built-in browser too
+        val rawUrl = url.toString()
         val settings = getSettings()
+        if (settings.blockerPlan != com.socialitefree.app.data.BlockerPlan.PAUSED) {
+            val matchedRule = settings.blockedSites.firstOrNull { it.matchesUrl(rawUrl) }
+            if (matchedRule != null) {
+                view?.loadDataWithBaseURL(
+                    null,
+                    """<html><body style="background:#0F172A;color:#F8FAFC;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;text-align:center;padding:24px;">
+                        <div><h2>Blocked by SocialLite</h2><p style="color:#94A3B8">Rule matched: <b>${matchedRule.pattern}</b></p><button onclick="history.back()" style="margin-top:16px;padding:10px 20px;border-radius:12px;border:none;background:#2563EB;color:white;font-weight:bold;">Go Back</button></div></body></html>""",
+                    "text/html",
+                    "utf-8",
+                    null
+                )
+                return true
+            }
+        }
+
+        // Redirect blocked Reels/Shorts URLs when enabled
         val host = url.host?.lowercase() ?: ""
         val path = url.path?.lowercase() ?: ""
 

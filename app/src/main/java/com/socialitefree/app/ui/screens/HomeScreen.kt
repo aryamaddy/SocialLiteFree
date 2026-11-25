@@ -38,29 +38,48 @@ import androidx.lifecycle.LifecycleEventObserver
 import com.socialitefree.app.BuildConfig
 import com.socialitefree.app.R
 import com.socialitefree.app.data.AppSettings
+import com.socialitefree.app.data.BlockerPlan
 import com.socialitefree.app.data.NativeAppHelper
+import com.socialitefree.app.data.PinType
 import com.socialitefree.app.data.Platform
 import com.socialitefree.app.data.PreferencesManager
+import com.socialitefree.app.data.SiteListSerializer
 import com.socialitefree.app.data.rememberAppSettings
+import com.socialitefree.app.ui.components.CuriousConfigDialog
+import com.socialitefree.app.ui.components.MindfulWaitPauseDialog
+import com.socialitefree.app.ui.components.PinVerifyDialog
 import com.socialitefree.app.ui.theme.*
 import com.socialitefree.app.update.AppUpdateInfo
 import com.socialitefree.app.update.UpdateChecker
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
 import java.time.LocalTime
+import java.util.Date
+import java.util.Locale
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     prefsManager: PreferencesManager,
     onNavigateToPlatform: (String) -> Unit,
-    onNavigateToSettings: () -> Unit
+    onNavigateToSettings: () -> Unit,
+    onNavigateToAppBlocker: () -> Unit = {},
+    onNavigateToWebsiteBlocker: () -> Unit = {},
+    onNavigateToPinLock: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val settings = rememberAppSettings(prefsManager)
     val usageMap by prefsManager.getAllUsageSeconds().collectAsState(initial = emptyMap())
     val nativeBlockedCount by prefsManager.nativeBlockedCount.collectAsState(initial = 0)
+    val todayBlocksCount by prefsManager.todayBlocksCount.collectAsState(initial = 0)
+    val todayReelsScrolled by prefsManager.todayReelsScrolled.collectAsState(initial = 0)
+    val blockHistoryJson by prefsManager.blockHistoryJson.collectAsState(initial = "[]")
     val coroutineScope = rememberCoroutineScope()
+
+    var showPauseDialog by remember { mutableStateOf(false) }
+    var showCuriousDialog by remember { mutableStateOf(false) }
+    var pendingPinPlanAction by remember { mutableStateOf<(() -> Unit)?>(null) }
 
     var a11yEnabled by remember { mutableStateOf(NativeAppHelper.isAccessibilityEnabled(context)) }
     var overlayEnabled by remember { mutableStateOf(NativeAppHelper.canDrawOverlays(context)) }
@@ -126,6 +145,9 @@ fun HomeScreen(
                     settings = settings,
                     usageMap = usageMap,
                     nativeBlockedCount = nativeBlockedCount,
+                    todayBlocksCount = todayBlocksCount,
+                    todayReelsScrolled = todayReelsScrolled,
+                    blockHistoryJson = blockHistoryJson,
                     prefsManager = prefsManager,
                     onGoHome = { coroutineScope.launch { pagerState.animateScrollToPage(1) } }
                 )
@@ -142,6 +164,36 @@ fun HomeScreen(
                         overlayEnabled = NativeAppHelper.canDrawOverlays(context)
                         pendingNativePlatform = Platform.INSTAGRAM
                     },
+                    onSelectPlan = { plan ->
+                        val now = System.currentTimeMillis()
+                        val cooldownLocked = settings.blockerPlan == BlockerPlan.CURIOUS &&
+                            settings.curiousLockSwitchInCooldown &&
+                            settings.curiousCooldownUntilMs > now &&
+                            (now - settings.curiousSessionStartMs) >= settings.curiousSessionMinutes * 60_000L
+                        if (cooldownLocked && plan != BlockerPlan.CURIOUS) {
+                            android.widget.Toast.makeText(
+                                context,
+                                "Curious Cooldown active — plan switch locked until cooldown ends",
+                                android.widget.Toast.LENGTH_SHORT
+                            ).show()
+                            return@LauncherHomePage
+                        }
+                        val runAction: () -> Unit = {
+                            when (plan) {
+                                BlockerPlan.CURIOUS -> showCuriousDialog = true
+                                BlockerPlan.PAUSED -> showPauseDialog = true
+                                else -> coroutineScope.launch { prefsManager.switchPlan(plan) }
+                            }
+                        }
+                        if (settings.pinType != PinType.NONE && settings.pinProtectPlanSwitch && plan != BlockerPlan.BLOCK_ALL) {
+                            pendingPinPlanAction = runAction
+                        } else {
+                            runAction()
+                        }
+                    },
+                    onNavigateToAppBlocker = onNavigateToAppBlocker,
+                    onNavigateToWebsiteBlocker = onNavigateToWebsiteBlocker,
+                    onNavigateToPinLock = onNavigateToPinLock,
                     onNavigateToSettings = onNavigateToSettings,
                     onOpenGuide = { showGuideSheet = true },
                     onJumpToSleep = { coroutineScope.launch { pagerState.animateScrollToPage(2) } },
@@ -254,6 +306,52 @@ fun HomeScreen(
             }
         )
     }
+
+    if (showPauseDialog) {
+        MindfulWaitPauseDialog(
+            initialWaitSeconds = settings.pauseWaitSeconds,
+            defaultDurationMinutes = settings.pauseDurationMinutes,
+            cooldownUntilMs = settings.pauseCooldownUntilMs,
+            onDismiss = { showPauseDialog = false },
+            onConfirmPause = { mins ->
+                showPauseDialog = false
+                coroutineScope.launch { prefsManager.startPauseSession(mins) }
+            }
+        )
+    }
+
+    if (showCuriousDialog) {
+        CuriousConfigDialog(
+            initialSessionMins = settings.curiousSessionMinutes,
+            initialCooldownMins = settings.curiousCooldownMinutes,
+            initialLockSwitch = settings.curiousLockSwitchInCooldown,
+            initialAllowOne = settings.curiousAllowOneInCooldown,
+            onDismiss = { showCuriousDialog = false },
+            onSaveAndActivate = { sMins, cMins, lockSw, allowOne ->
+                showCuriousDialog = false
+                coroutineScope.launch {
+                    prefsManager.setInt(PreferencesManager.CURIOUS_SESSION_MINUTES, sMins)
+                    prefsManager.setInt(PreferencesManager.CURIOUS_COOLDOWN_MINUTES, cMins)
+                    prefsManager.setBoolean(PreferencesManager.CURIOUS_LOCK_SWITCH_IN_COOLDOWN, lockSw)
+                    prefsManager.setBoolean(PreferencesManager.CURIOUS_ALLOW_ONE_IN_COOLDOWN, allowOne)
+                    prefsManager.switchPlan(BlockerPlan.CURIOUS)
+                }
+            }
+        )
+    }
+
+    pendingPinPlanAction?.let { action ->
+        PinVerifyDialog(
+            title = "Confirm Blocker Plan Change",
+            pinType = settings.pinType,
+            customPin = settings.customPin,
+            onDismiss = { pendingPinPlanAction = null },
+            onVerified = {
+                pendingPinPlanAction = null
+                action()
+            }
+        )
+    }
 }
 
 @Composable
@@ -266,6 +364,10 @@ private fun LauncherHomePage(
     onPlatformClick: (Platform) -> Unit,
     onOpenUpdateDialog: () -> Unit,
     onShieldClick: () -> Unit,
+    onSelectPlan: (BlockerPlan) -> Unit,
+    onNavigateToAppBlocker: () -> Unit,
+    onNavigateToWebsiteBlocker: () -> Unit,
+    onNavigateToPinLock: () -> Unit,
     onNavigateToSettings: () -> Unit,
     onOpenGuide: () -> Unit,
     onJumpToSleep: () -> Unit,
@@ -402,7 +504,113 @@ private fun LauncherHomePage(
                 }
             }
 
-            Spacer(modifier = Modifier.height(18.dp))
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Blocker Plan Switcher Pill (Block All / Curious / One Reel / Pause)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(CreamCard.copy(alpha = 0.88f))
+                    .padding(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                BlockerPlan.entries.forEach { plan ->
+                    val selected = settings.blockerPlan == plan
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(
+                                when {
+                                    selected && plan == BlockerPlan.PAUSED -> SocialAmber
+                                    selected -> SocialPurple
+                                    else -> Color.Transparent
+                                }
+                            )
+                            .clickable { onSelectPlan(plan) }
+                            .padding(vertical = 7.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = plan.shortTitle,
+                            fontSize = 11.sp,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                            color = if (selected) Color.White else InkSecondary
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Super-Tools Bar (App Blocker / Site Blocker / PIN Lock)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = CreamCard.copy(alpha = 0.9f),
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable(onClick = onNavigateToAppBlocker)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(Icons.Rounded.AppBlocking, contentDescription = null, tint = SocialPurple, modifier = Modifier.size(15.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("App Lock", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = InkPrimary)
+                    }
+                }
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = CreamCard.copy(alpha = 0.9f),
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable(onClick = onNavigateToWebsiteBlocker)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(Icons.Rounded.PublicOff, contentDescription = null, tint = SocialPurple, modifier = Modifier.size(15.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Sites", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = InkPrimary)
+                    }
+                }
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = CreamCard.copy(alpha = 0.9f),
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable(onClick = onNavigateToPinLock)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            Icons.Rounded.Lock,
+                            contentDescription = null,
+                            tint = if (settings.pinType != PinType.NONE) SocialGreen else InkSecondary,
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text("PIN", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = InkPrimary)
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
 
             // 2-Column 3D Glossy Painted Squircle Icon Grid
             LazyVerticalGrid(
@@ -675,7 +883,7 @@ private fun NativeBlockerSetupSheet(
             }
         }
 
-        // Step 2: Optional Overlay Permission
+        // Step 2: Keep Running 24/7 (Battery Optimization Exemption)
         item {
             Surface(
                 shape = RoundedCornerShape(18.dp),
@@ -689,58 +897,7 @@ private fun NativeBlockerSetupSheet(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "2. Draw Over Other Apps",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 15.sp,
-                            color = InkPrimary
-                        )
-                        Text(
-                            text = if (overlayEnabled) "ALLOWED ✓" else "RECOMMENDED",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = if (overlayEnabled) SocialGreen else SocialAmber
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "Covers & locks the Reels tab button inside the original Instagram app.",
-                        fontSize = 12.sp,
-                        color = InkSecondary
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Button(
-                        onClick = onEnableOverlay,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (overlayEnabled) SocialGreen else InkPrimary
-                        ),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(
-                            text = if (overlayEnabled) "Overlay Permission Allowed ✓" else "Allow Display Over Other Apps",
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color.White
-                        )
-                    }
-                }
-            }
-        }
-
-        // Step 3: Keep Running 24/7 (Battery Optimization Exemption)
-        item {
-            Surface(
-                shape = RoundedCornerShape(18.dp),
-                color = CreamCard,
-                shadowElevation = 1.dp
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "3. Keep Active When Closed (24/7)",
+                            text = "2. Keep Active When Closed (24/7)",
                             fontWeight = FontWeight.Bold,
                             fontSize = 15.sp,
                             color = InkPrimary
@@ -807,11 +964,19 @@ private fun ScreenTimePage(
     settings: AppSettings,
     usageMap: Map<String, Int>,
     nativeBlockedCount: Int,
+    todayBlocksCount: Int,
+    todayReelsScrolled: Int,
+    blockHistoryJson: String,
     prefsManager: PreferencesManager,
     onGoHome: () -> Unit
 ) {
     val coroutineScope = rememberCoroutineScope()
     val totalSeconds = usageMap.values.sum()
+    val estimatedSavedMins = (todayBlocksCount * 1.5).toInt()
+    val historyEvents = remember(blockHistoryJson) {
+        SiteListSerializer.decodeHistory(blockHistoryJson).take(12)
+    }
+    val timeFormatter = remember { SimpleDateFormat("hh:mm a", Locale.getDefault()) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         Image(
@@ -901,10 +1066,18 @@ private fun ScreenTimePage(
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "$nativeBlockedCount Reels / Shorts caught in native apps",
+                                text = "$todayBlocksCount blocked today (~${estimatedSavedMins}m saved) · $nativeBlockedCount total",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Medium,
                                 color = SocialGreen
+                            )
+                        }
+                        if (todayReelsScrolled > 0) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "$todayReelsScrolled allowed reels scrolled today",
+                                fontSize = 11.sp,
+                                color = InkSecondary
                             )
                         }
                     }
@@ -1013,6 +1186,57 @@ private fun ScreenTimePage(
                     }
                 }
             }
+
+            if (historyEvents.isNotEmpty()) {
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp, start = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "RECENT BLOCK LOG",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.8.sp,
+                            color = InkSecondary
+                        )
+                        Text(
+                            text = "Clear",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = SocialPurple,
+                            modifier = Modifier.clickable {
+                                coroutineScope.launch { prefsManager.clearBlockHistory() }
+                            }
+                        )
+                    }
+                }
+                items(historyEvents) { ev ->
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = CreamCard.copy(alpha = 0.88f)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(ev.platformName, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = InkPrimary)
+                                Text("${ev.actionMode} · ${ev.planUsed}", fontSize = 11.sp, color = InkSecondary)
+                            }
+                            Text(
+                                text = timeFormatter.format(Date(ev.timestampMs)),
+                                fontSize = 11.sp,
+                                color = InkSecondary
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -1116,7 +1340,113 @@ private fun SleepModePage(
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(18.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
+
+            // Blocker Plan Switcher Pill (Block All / Curious / One Reel / Pause)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(CreamCard.copy(alpha = 0.88f))
+                    .padding(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                BlockerPlan.entries.forEach { plan ->
+                    val selected = settings.blockerPlan == plan
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(
+                                when {
+                                    selected && plan == BlockerPlan.PAUSED -> SocialAmber
+                                    selected -> SocialPurple
+                                    else -> Color.Transparent
+                                }
+                            )
+                            .clickable { onSelectPlan(plan) }
+                            .padding(vertical = 7.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = plan.shortTitle,
+                            fontSize = 11.sp,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                            color = if (selected) Color.White else InkSecondary
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Super-Tools Bar (App Blocker / Site Blocker / PIN Lock)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = CreamCard.copy(alpha = 0.9f),
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable(onClick = onNavigateToAppBlocker)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(Icons.Rounded.AppBlocking, contentDescription = null, tint = SocialPurple, modifier = Modifier.size(15.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("App Lock", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = InkPrimary)
+                    }
+                }
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = CreamCard.copy(alpha = 0.9f),
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable(onClick = onNavigateToWebsiteBlocker)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(Icons.Rounded.PublicOff, contentDescription = null, tint = SocialPurple, modifier = Modifier.size(15.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Sites", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = InkPrimary)
+                    }
+                }
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = CreamCard.copy(alpha = 0.9f),
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable(onClick = onNavigateToPinLock)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            Icons.Rounded.Lock,
+                            contentDescription = null,
+                            tint = if (settings.pinType != PinType.NONE) SocialGreen else InkSecondary,
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text("PIN", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = InkPrimary)
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
                     Divider(color = Color.White.copy(alpha = 0.1f))
                     Spacer(modifier = Modifier.height(16.dp))
 

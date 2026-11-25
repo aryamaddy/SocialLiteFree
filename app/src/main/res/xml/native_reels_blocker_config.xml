@@ -5,5 +5,4 @@
     android:accessibilityFlags="flagDefault|flagReportViewIds|flagRetrieveInteractiveWindows|flagIncludeNotImportantViews"
     android:canRetrieveWindowContent="true"
     android:description="@string/accessibility_blocker_description"
-    android:notificationTimeout="80"
-    android:packageNames="com.instagram.android,com.google.android.youtube,com.facebook.katana,com.snapchat.android,com.zhiliaoapp.musically,com.ss.android.ugc.trill,com.twitter.android" />
+    android:notificationTimeout="80" />

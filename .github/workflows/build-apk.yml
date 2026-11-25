@@ -52,17 +52,20 @@ jobs:
         if: startsWith(github.ref, 'refs/heads/')
         with:
           tag_name: v1.0.0-${{ github.run_number }}
-          name: SocialLiteFree v1.5.1 (Build ${{ github.run_number }})
+          name: SocialLiteFree v1.6.0 (Build ${{ github.run_number }})
           body: |
-            ### 🚀 SocialLiteFree v1.5.1 (Build ${{ github.run_number }})
+            ### 🚀 SocialLiteFree v1.6.0 (Build ${{ github.run_number }}) — Full NoScroll Parity Edition (100% Free)
 
-            **Fixes in v1.5.1:**
-            - **Fixed "Works 1st time, fails 2nd time" bug**: Enforced strict on-screen bounds checks so off-screen Instagram Home/DM pager views no longer falsely unlock Reels on subsequent taps.
-            - **24/7 Blocker Keep-Alive**: Added `BlockerKeepAliveService` so OEMs don't stop blocking when SocialLite is closed from Recents.
-            - **Enhanced DM Sent-Reel Scroll Lock**: Multi-signal scroll & content-change detector blocks swiping past the sent Reel.
+            **What's New in v1.6.0:**
+            - **Blocker Plans (`Block All`, `Curious Mode`, `One Reel Mode`, `Pause`):** Timed watch + cooldown mode, single-reel DM/scroll exit mode, and Mindful Wait countdown with anti-doomscroll quotes.
+            - **App Blocker & Daily Limits:** Lock any installed app or enforce daily screen-time allowances with temporary timed unlocks.
+            - **Unlimited Website & Keyword Blocker:** Block custom domains, path prefixes, exact URLs, and keywords across 30+ Android browsers (Chrome, Brave, Firefox, Edge, Opera, Samsung) & in-app browser — 100% unlimited & free.
+            - **PIN Lock & Uninstall Guard:** Custom PIN, Live Time PIN (12h/24h), Today's Date PIN, Device Screen Lock / Fingerprint, and optional Device Admin Uninstall Guard.
+            - **Floating Watchtime Counter & Multi-Platform Native Shield:** Live pill overlay, haptic feedback, Blocking Action selector (`Smart Back`, `Minimize App`, `Lock Screen`), plus Instagram Stories, TikTok, X, Reddit, LinkedIn, Snapchat Discover/Stories & WhatsApp Status support.
+            - **Zero Subscriptions & Zero Ads:** Every feature unlocked free forever.
 
             **APKs included:**
-            1. **`SocialLite-OriginalAppBlocker.apk`** — Full Native App Reels/Shorts Blocker Edition.
+            1. **`SocialLite-OriginalAppBlocker.apk`** — Full Native App & OS-level Reels/Shorts/App Blocker Edition.
             2. **`SocialLite-WebsiteClean.apk`** — Website / Chrome Direct Install Edition.
           files: |
             dist/SocialLite-WebsiteClean.apk

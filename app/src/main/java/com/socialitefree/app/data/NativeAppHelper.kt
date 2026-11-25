@@ -2,6 +2,7 @@ package com.socialitefree.app.data
 
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.annotation.SuppressLint
+import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -10,7 +11,14 @@ import android.net.Uri
 import android.os.PowerManager
 import android.provider.Settings
 import android.view.accessibility.AccessibilityManager
+import com.socialitefree.app.BuildConfig
+import com.socialitefree.app.receiver.SocialLiteAdminReceiver
 import com.socialitefree.app.service.NativeReelsBlockerService
+
+data class InstalledAppSummary(
+    val packageName: String,
+    val appName: String
+)
 
 object NativeAppHelper {
 
@@ -23,7 +31,6 @@ object NativeAppHelper {
                     return pkg
                 }
             } catch (_: PackageManager.NameNotFoundException) {
-                // Not installed, check next
             }
         }
         return null
@@ -41,7 +48,29 @@ object NativeAppHelper {
         }
     }
 
+    fun getInstalledLaunchableApps(context: Context): List<InstalledAppSummary> {
+        val pm = context.packageManager
+        val mainIntent = Intent(Intent.ACTION_MAIN, null).apply {
+            addCategory(Intent.CATEGORY_LAUNCHER)
+        }
+        return try {
+            val resolveInfos = pm.queryIntentActivities(mainIntent, 0)
+            resolveInfos
+                .mapNotNull { info ->
+                    val pkg = info.activityInfo?.packageName ?: return@mapNotNull null
+                    if (pkg == context.packageName) return@mapNotNull null
+                    val label = info.loadLabel(pm)?.toString()?.trim().orEmpty().ifBlank { pkg }
+                    InstalledAppSummary(packageName = pkg, appName = label)
+                }
+                .distinctBy { it.packageName }
+                .sortedBy { it.appName.lowercase() }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
     fun isAccessibilityEnabled(context: Context): Boolean {
+        if (!BuildConfig.SUPPORTS_NATIVE_BLOCKER) return false
         val am = context.getSystemService(Context.ACCESSIBILITY_SERVICE) as? AccessibilityManager
         val expectedComponent = ComponentName(context, NativeReelsBlockerService::class.java)
         val expectedFlat = expectedComponent.flattenToString()
@@ -73,7 +102,7 @@ object NativeAppHelper {
     }
 
     fun canDrawOverlays(context: Context): Boolean {
-        return Settings.canDrawOverlays(context)
+        return true // Primary blocker overlays use Accessibility TYPE_ACCESSIBILITY_OVERLAY cleanly
     }
 
     fun isIgnoringBatteryOptimizations(context: Context): Boolean {
@@ -114,5 +143,44 @@ object NativeAppHelper {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         context.startActivity(intent)
+    }
+
+    fun isUninstallGuardActive(context: Context): Boolean {
+        if (!BuildConfig.SUPPORTS_NATIVE_BLOCKER) return false
+        return try {
+            val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as? DevicePolicyManager
+                ?: return false
+            val admin = ComponentName(context, SocialLiteAdminReceiver::class.java)
+            dpm.isAdminActive(admin)
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    fun enableUninstallGuard(context: Context) {
+        if (!BuildConfig.SUPPORTS_NATIVE_BLOCKER) return
+        val admin = ComponentName(context, SocialLiteAdminReceiver::class.java)
+        val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
+            putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, admin)
+            putExtra(
+                DevicePolicyManager.EXTRA_ADD_EXPLANATION,
+                "Prevents accidental or impulsive uninstallation of SocialLite while keeping focus active."
+            )
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(intent)
+    }
+
+    fun disableUninstallGuard(context: Context) {
+        if (!BuildConfig.SUPPORTS_NATIVE_BLOCKER) return
+        try {
+            val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as? DevicePolicyManager
+                ?: return
+            val admin = ComponentName(context, SocialLiteAdminReceiver::class.java)
+            if (dpm.isAdminActive(admin)) {
+                dpm.removeActiveAdmin(admin)
+            }
+        } catch (_: Exception) {
+        }
     }
 }
